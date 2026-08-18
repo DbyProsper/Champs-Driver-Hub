@@ -278,15 +278,11 @@ export type Database = {
           branch_id: string | null
           created_at: string
           id: string
-          id_number: string | null
           name: string
           phone: string
-          profile_photo_url: string | null
           reviewed_at: string | null
           reviewed_by: string | null
-          selfie_url: string | null
           status: string
-          student_number: string | null
           updated_at: string
           user_id: string
         }
@@ -298,15 +294,11 @@ export type Database = {
           branch_id?: string | null
           created_at?: string
           id?: string
-          id_number?: string | null
           name: string
           phone: string
-          profile_photo_url?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          selfie_url?: string | null
           status?: string
-          student_number?: string | null
           updated_at?: string
           user_id: string
         }
@@ -318,15 +310,11 @@ export type Database = {
           branch_id?: string | null
           created_at?: string
           id?: string
-          id_number?: string | null
           name?: string
           phone?: string
-          profile_photo_url?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          selfie_url?: string | null
           status?: string
-          student_number?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -374,68 +362,41 @@ export type Database = {
       }
       drivers: {
         Row: {
-          active_order_count: number
-          active_order_limit: number
-          approval_status: string
-          approved_at: string | null
           bank_account_holder: string | null
           bank_account_number: string | null
           bank_name: string | null
           branch_id: string | null
           created_at: string
           id: string
-          last_assignment_at: string | null
-          last_online_at: string | null
           name: string
           phone: string
-          rejected_at: string | null
           status: string
-          suspended_at: string | null
-          suspension_reason: string | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
-          active_order_count?: number
-          active_order_limit?: number
-          approval_status?: string
-          approved_at?: string | null
           bank_account_holder?: string | null
           bank_account_number?: string | null
           bank_name?: string | null
           branch_id?: string | null
           created_at?: string
           id?: string
-          last_assignment_at?: string | null
-          last_online_at?: string | null
           name: string
           phone: string
-          rejected_at?: string | null
           status?: string
-          suspended_at?: string | null
-          suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
-          active_order_count?: number
-          active_order_limit?: number
-          approval_status?: string
-          approved_at?: string | null
           bank_account_holder?: string | null
           bank_account_number?: string | null
           bank_name?: string | null
           branch_id?: string | null
           created_at?: string
           id?: string
-          last_assignment_at?: string | null
-          last_online_at?: string | null
           name?: string
           phone?: string
-          rejected_at?: string | null
           status?: string
-          suspended_at?: string | null
-          suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -960,13 +921,10 @@ export type Database = {
       order_status:
         | "pending"
         | "preparing"
-        | "ready"
-        | "handed_to_driver"
-        | "picked_up"
-        | "on_the_way"
         | "out_for_delivery"
         | "completed"
         | "cancelled"
+        | "ready"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1099,13 +1057,10 @@ export const Constants = {
       order_status: [
         "pending",
         "preparing",
-        "ready",
-        "handed_to_driver",
-        "picked_up",
-        "on_the_way",
         "out_for_delivery",
         "completed",
         "cancelled",
+        "ready",
       ],
     },
   },
