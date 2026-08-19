@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bike, Phone, MapPin, Loader2, LogOut, RefreshCw, Package, Navigation as NavIcon, CheckCircle2, Landmark, CreditCard, Settings2, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { DELIVERY_STATUS_LABEL, getOrderStatusForDeliveryStatus, type DeliveryStatus } from "@/lib/delivery";
 import { confirmDeliveryPayment, getDriverProfileForCurrentUser } from "@/lib/admin.functions";
 import { DriverPageSkeleton } from "@/components/Loader";
+import { fireNotification, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
 
 export const Route = createFileRoute("/_authenticated/driver")({
   head: () => ({ meta: [{ title: "Driver — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -65,6 +66,8 @@ function DriverPage() {
   const [historyFilter, setHistoryFilter] = useState<"today" | "week" | "month" | "6months" | "year" | "custom">("week");
   const [customRange, setCustomRange] = useState<{ from?: string; to?: string }>({});
   const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
+  const seenDeliveryIds = useRef<Set<string> | null>(null);
+  const previousDeliveryStatuses = useRef<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -102,6 +105,19 @@ function DriverPage() {
       .order("queue_position", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
     const list = (dels ?? []) as Delivery[];
+    if (seenDeliveryIds.current) {
+      for (const delivery of list) {
+        if (!seenDeliveryIds.current.has(delivery.id) && delivery.status !== "delivered" && delivery.status !== "cancelled") {
+          fireNotification("New Champs delivery", "A new delivery is available in the driver queue", `delivery-${delivery.id}`);
+        }
+        const previousStatus = previousDeliveryStatuses.current[delivery.id];
+        if (previousStatus && previousStatus !== delivery.status && (delivery.driver_id === driverRecord.id || delivery.status === "pending")) {
+          fireNotification("Delivery update", `Delivery status: ${delivery.status.replaceAll("_", " ")}`, `delivery-${delivery.id}-${delivery.status}`);
+        }
+      }
+    }
+    seenDeliveryIds.current = new Set(list.map((delivery) => delivery.id));
+    previousDeliveryStatuses.current = Object.fromEntries(list.map((delivery) => [delivery.id, delivery.status]));
     setDeliveries(list);
 
     const proofMap: Record<string, string> = {};
@@ -143,6 +159,7 @@ function DriverPage() {
   }, []);
 
   useEffect(() => {
+    void requestNotificationPermissionIfNeeded();
     load();
   }, [load]);
 
@@ -252,6 +269,7 @@ function DriverPage() {
     const { error } = await supabase.from("drivers").update({ status: nextStatus } as never).eq("id", driver.id);
     if (error) return toast.error(error.message);
     setDriver({ ...driver, status: nextStatus });
+    toast.success(nextStatus === "active" ? "You are now online" : "You are now offline");
   }
 
   async function confirmPayment(id: string) {

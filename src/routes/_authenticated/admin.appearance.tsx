@@ -4,6 +4,7 @@ import { ArrowLeft, Image, Paintbrush, Save } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { FALLBACK_MEDIA, FALLBACK_SETTINGS, imageSrcFor, type MediaAsset, type SiteSettings } from "@/lib/site-content";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin/appearance")({
   head: () => ({ meta: [{ title: "Appearance — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -37,6 +38,7 @@ function AppearanceAdmin() {
       const { error } = await supabase.from("site_settings").upsert(settings);
       if (error) throw error;
       toast.success("Appearance saved");
+      void logAdminAction({ action_type: "site_settings_updated", action_description: "Updated site appearance settings", target_type: "site_settings", target_id: "main", metadata: { settings } });
       await load();
     } catch (err: any) {
       toast.error(err.message ?? "Could not save appearance");
@@ -48,7 +50,7 @@ function AppearanceAdmin() {
   async function saveAsset(asset: MediaAsset) {
     const { error } = await supabase.from("media_assets").update(asset).eq("id", asset.id);
     if (error) toast.error(error.message);
-    else { toast.success("Media updated"); load(); }
+    else { toast.success("Media updated"); void logAdminAction({ action_type: "media_asset_updated", action_description: `Updated media asset ${asset.title}`, target_type: "media_asset", target_id: asset.id, metadata: { asset } }); load(); }
   }
 
   async function createAsset() {
@@ -68,6 +70,7 @@ function AppearanceAdmin() {
     if (error) toast.error(error.message);
     else {
       toast.success("Media added");
+      void logAdminAction({ action_type: "media_asset_created", action_description: `Added media asset ${newAsset.title.trim()}`, target_type: "media_asset", metadata: { image_key: newAsset.image_key, src: newAsset.src } });
       setNewAsset({ title: "", image_key: "", src: "", alt: "", usage: "general" });
       load();
     }

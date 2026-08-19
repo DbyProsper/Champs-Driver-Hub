@@ -6,7 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
-import { fireNotification, notificationPermission, requestNotificationPermission } from "@/lib/notifications";
+import { fireNotification, notificationPermission, requestNotificationPermission, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
 import { waLink, orderStatusMessage } from "@/lib/whatsapp";
 import { PAYMENT_STATUS_LABEL, resolveOrderDisplayStatus, triggerAutoAssign } from "@/lib/delivery";
 import { toast } from "sonner";
@@ -96,6 +96,8 @@ function OrderPage() {
   const [proofUploading, setProofUploading] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
 
+  useEffect(() => { void requestNotificationPermissionIfNeeded(); }, []);
+
   const isDelivery = data?.order.fulfillment === "delivery";
   const effectiveStatus = resolveOrderDisplayStatus(data?.order.status ?? "pending", data?.delivery?.status ?? null) ?? data?.order.status ?? "pending";
   const visibleStatus = isDelivery && (effectiveStatus === "picked_up" || effectiveStatus === "on_the_way" || effectiveStatus === "out_for_delivery")
@@ -121,7 +123,15 @@ function OrderPage() {
         }
         refetch();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries", filter: `order_id=eq.${data.order.id}` }, () => refetch())
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries", filter: `order_id=eq.${data.order.id}` }, (payload) => {
+        const status = (payload.new as any)?.status as string | undefined;
+        if (status) {
+          const label = DELIVERY_STATUS_LABEL[status] ?? status;
+          toast.success(`Order update: ${label}`);
+          fireNotification(`Champs Chicken — ${label}`, `Order ${data.order.order_number} · ${label}`, `order-${data.order.id}-${status}`);
+        }
+        refetch();
+      })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [data?.order.id, data?.order.order_number, refetch, STATUS_LABEL]);

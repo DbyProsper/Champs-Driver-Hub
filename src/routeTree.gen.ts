@@ -27,6 +27,7 @@ import { Route as AuthenticatedAdminPromotionsRouteImport } from './routes/_auth
 import { Route as AuthenticatedAdminMenuRouteImport } from './routes/_authenticated/admin.menu'
 import { Route as AuthenticatedAdminDeliverySettingsRouteImport } from './routes/_authenticated/admin.delivery-settings'
 import { Route as AuthenticatedAdminDeliveriesRouteImport } from './routes/_authenticated/admin.deliveries'
+import { Route as AuthenticatedAdminAuditTrailRouteImport } from './routes/_authenticated/admin.audit-trail'
 import { Route as AuthenticatedAdminAppearanceRouteImport } from './routes/_authenticated/admin.appearance'
 
 const TrackRoute = TrackRouteImport.update({
@@ -122,6 +123,12 @@ const AuthenticatedAdminDeliveriesRoute =
     path: '/deliveries',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminAuditTrailRoute =
+  AuthenticatedAdminAuditTrailRouteImport.update({
+    id: '/audit-trail',
+    path: '/audit-trail',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminAppearanceRoute =
   AuthenticatedAdminAppearanceRouteImport.update({
     id: '/appearance',
@@ -143,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
+  '/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
   '/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/admin/menu': typeof AuthenticatedAdminMenuRoute
@@ -163,6 +171,7 @@ export interface FileRoutesByTo {
   '/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
+  '/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
   '/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/admin/menu': typeof AuthenticatedAdminMenuRoute
@@ -185,6 +194,7 @@ export interface FileRoutesById {
   '/_authenticated/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/_authenticated/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
+  '/_authenticated/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
   '/_authenticated/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/_authenticated/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/_authenticated/admin/menu': typeof AuthenticatedAdminMenuRoute
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/driver'
     | '/order/$number'
     | '/admin/appearance'
+    | '/admin/audit-trail'
     | '/admin/deliveries'
     | '/admin/delivery-settings'
     | '/admin/menu'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/driver'
     | '/order/$number'
     | '/admin/appearance'
+    | '/admin/audit-trail'
     | '/admin/deliveries'
     | '/admin/delivery-settings'
     | '/admin/menu'
@@ -248,6 +260,7 @@ export interface FileRouteTypes {
     | '/_authenticated/driver'
     | '/order/$number'
     | '/_authenticated/admin/appearance'
+    | '/_authenticated/admin/audit-trail'
     | '/_authenticated/admin/deliveries'
     | '/_authenticated/admin/delivery-settings'
     | '/_authenticated/admin/menu'
@@ -397,6 +410,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminDeliveriesRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/admin/audit-trail': {
+      id: '/_authenticated/admin/audit-trail'
+      path: '/audit-trail'
+      fullPath: '/admin/audit-trail'
+      preLoaderRoute: typeof AuthenticatedAdminAuditTrailRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/appearance': {
       id: '/_authenticated/admin/appearance'
       path: '/appearance'
@@ -409,6 +429,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminAppearanceRoute: typeof AuthenticatedAdminAppearanceRoute
+  AuthenticatedAdminAuditTrailRoute: typeof AuthenticatedAdminAuditTrailRoute
   AuthenticatedAdminDeliveriesRoute: typeof AuthenticatedAdminDeliveriesRoute
   AuthenticatedAdminDeliverySettingsRoute: typeof AuthenticatedAdminDeliverySettingsRoute
   AuthenticatedAdminMenuRoute: typeof AuthenticatedAdminMenuRoute
@@ -418,6 +439,7 @@ interface AuthenticatedAdminRouteChildren {
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminAppearanceRoute: AuthenticatedAdminAppearanceRoute,
+  AuthenticatedAdminAuditTrailRoute: AuthenticatedAdminAuditTrailRoute,
   AuthenticatedAdminDeliveriesRoute: AuthenticatedAdminDeliveriesRoute,
   AuthenticatedAdminDeliverySettingsRoute:
     AuthenticatedAdminDeliverySettingsRoute,

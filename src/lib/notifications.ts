@@ -16,6 +16,11 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return Notification.requestPermission();
 }
 
+export async function requestNotificationPermissionIfNeeded() {
+  if (!notificationsSupported() || Notification.permission !== "default") return Notification.permission;
+  return requestNotificationPermission();
+}
+
 export function fireNotification(title: string, body: string, tag?: string) {
   if (!notificationsSupported() || Notification.permission !== "granted") return;
   try {

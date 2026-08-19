@@ -4,6 +4,7 @@ import { ArrowLeft, Save, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DEFAULT_DELIVERY_SETTINGS, fetchDeliverySettings, type DeliverySettings } from "@/lib/delivery";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin/delivery-settings")({
   head: () => ({ meta: [{ title: "Delivery Settings — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -25,6 +26,7 @@ function DeliverySettingsPage() {
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success("Delivery settings saved");
+    void logAdminAction({ action_type: "delivery_settings_updated", action_description: "Updated delivery settings", target_type: "delivery_settings", target_id: "default", metadata: { settings: s } });
   }
 
   const field = (label: string, key: keyof DeliverySettings, step: number | string = 0.1, hint?: string) => (

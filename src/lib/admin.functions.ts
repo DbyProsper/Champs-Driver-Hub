@@ -45,6 +45,19 @@ async function resolveAccessRole(context: { supabase: { rpc: (name: string) => P
   return null;
 }
 
+async function logServerAdminAction(context: { userId?: string | null }, action: { action_type: string; action_description: string; target_type: string; target_id?: string | null; metadata?: Record<string, unknown> }) {
+  const adminId = context.userId;
+  if (!adminId) return;
+  await supabaseAdmin.from("audit_logs").insert({
+    admin_id: adminId,
+    ...action,
+    target_id: action.target_id ?? null,
+    metadata: action.metadata ?? {},
+    ip_address: null,
+    user_agent: null,
+  } as never);
+}
+
 async function getVisibleDriversForAdmin() {
   let driverRows: Array<{ id: string; user_id: string | null; name: string; phone: string; status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; created_at: string; updated_at: string }> = [];
   let applicationRows: Array<{ id: string; user_id: string; name: string; phone: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
@@ -168,6 +181,13 @@ export const grantRoleByEmail = createServerFn({ method: "POST" })
     const result = (Array.isArray(grantData) ? grantData[0] : grantData) as
       | { out_user_id?: string; out_email?: string; out_role?: string }
       | null;
+    await logServerAdminAction(context, {
+      action_type: data.role === "admin" ? "admin_role_granted" : "user_role_updated",
+      action_description: `Granted ${data.role} access to ${data.email}`,
+      target_type: "user",
+      target_id: result?.out_user_id ?? null,
+      metadata: { email: data.email, role: data.role },
+    });
     return {
       ok: true,
       user_id: result?.out_user_id ?? null,
@@ -205,6 +225,13 @@ export const adminUpsertDriverByEmail = createServerFn({ method: "POST" })
     });
     if (error) throw error;
     const result = Array.isArray(upsertData) ? upsertData[0] : upsertData;
+    await logServerAdminAction(context, {
+      action_type: "driver_created_or_updated",
+      action_description: `Created or updated driver ${data.name}`,
+      target_type: "driver",
+      target_id: (result as any)?.out_driver_id ?? null,
+      metadata: { email: data.email, name: data.name, branch_id: data.branchId ?? null },
+    });
     return { ok: true, ...result };
   });
 
@@ -251,6 +278,12 @@ export const approveDriverApplication = createServerFn({ method: "POST" })
     const { data: resultData, error } = await context.supabase.rpc("approve_driver_application", { _application_id: data.applicationId });
     if (error) throw error;
     const result = Array.isArray(resultData) ? resultData[0] : resultData;
+    await logServerAdminAction(context, {
+      action_type: "driver_approved",
+      action_description: "Approved driver application",
+      target_type: "driver_application",
+      target_id: data.applicationId,
+    });
     return { ok: true, ...result };
   });
 
@@ -265,6 +298,13 @@ export const rejectDriverApplication = createServerFn({ method: "POST" })
     const { data: resultData, error } = await context.supabase.rpc("reject_driver_application", { _application_id: data.applicationId, _admin_notes: data.notes || undefined });
     if (error) throw error;
     const result = Array.isArray(resultData) ? resultData[0] : resultData;
+    await logServerAdminAction(context, {
+      action_type: "driver_rejected",
+      action_description: "Rejected driver application",
+      target_type: "driver_application",
+      target_id: data.applicationId,
+      metadata: { notes: data.notes ?? null },
+    });
     return { ok: true, ...result };
   });
 

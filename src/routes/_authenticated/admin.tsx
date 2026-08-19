@@ -6,11 +6,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
 import { waLink, orderStatusMessage } from "@/lib/whatsapp";
-import { fireNotification } from "@/lib/notifications";
+import { fireNotification, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
 import { useBranch } from "@/lib/branch";
 import { getAccessRole } from "@/lib/roles";
 import { grantRoleByEmail } from "@/lib/admin.functions";
 import { getDeliveryStatusForOrderStatus, resolveOrderDisplayStatus } from "@/lib/delivery";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -24,6 +25,7 @@ type Order = {
   customer_phone: string;
   fulfillment: "pickup" | "delivery";
   delivery_notes: string | null;
+  driver_id: string | null;
   subtotal_cents: number;
   status: "pending" | "preparing" | "ready" | "handed_to_driver" | "picked_up" | "on_the_way" | "out_for_delivery" | "completed" | "cancelled";
   created_at: string;
@@ -66,8 +68,11 @@ function Admin() {
   const [grantBusy, setGrantBusy] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [deliveryStatuses, setDeliveryStatuses] = useState<Record<string, string>>({});
+  const [deliveryDriverIds, setDeliveryDriverIds] = useState<Record<string, string | null>>({});
+  const [driverNames, setDriverNames] = useState<Record<string, string>>({});
   const [manualPeak, setManualPeak] = useState<boolean>(false);
   const prevIdsRef = useRef<Set<string>>(new Set());
+  const prevStatusRef = useRef<Record<string, string>>({});
 
   async function load() {
     const [{ data: os }, { data: deliveryRows }] = await Promise.all([
@@ -76,12 +81,20 @@ function Admin() {
         .select("*")
         .order("created_at", { ascending: false })
         .limit(200),
-      supabase.from("deliveries").select("order_id, status"),
+      supabase.from("deliveries").select("order_id, status, driver_id"),
       supabase.from("delivery_settings").select("manual_peak_mode").eq("id", "default").maybeSingle(),
     ]);
     const list = (os as Order[]) ?? [];
     // Detect new pending orders for browser notifications + toast
     const newOnes = list.filter((o) => o.status === "pending" && !prevIdsRef.current.has(o.id));
+    if (prevIdsRef.current.size > 0) {
+      list.forEach((order) => {
+        const previous = prevStatusRef.current[order.id];
+        if (previous && previous !== order.status) {
+          fireNotification("Order updated", `${order.order_number} · ${order.status.replaceAll("_", " ")}`, `admin-order-${order.id}-${order.status}`);
+        }
+      });
+    }
     if (prevIdsRef.current.size > 0 && newOnes.length > 0) {
       newOnes.forEach((o) => {
         toast.success(`New order ${o.order_number} · ${o.customer_name}`);
@@ -89,12 +102,23 @@ function Admin() {
       });
     }
     prevIdsRef.current = new Set(list.map((o) => o.id));
+    prevStatusRef.current = Object.fromEntries(list.map((o) => [o.id, o.status]));
     setOrders(list);
     const statusMap: Record<string, string> = {};
-    for (const row of (deliveryRows ?? []) as Array<{ order_id: string; status: string }>) {
+    const driverIds = Array.from(new Set((deliveryRows ?? []).map((row: any) => row.driver_id).filter(Boolean)));
+    if (driverIds.length) {
+      const { data: drivers } = await supabase.from("drivers").select("id, name").in("id", driverIds);
+      const names: Record<string, string> = {};
+      for (const driver of (drivers ?? []) as Array<{ id: string; name: string }>) names[driver.id] = driver.name;
+      setDriverNames(names);
+    } else setDriverNames({});
+    const driverMap: Record<string, string | null> = {};
+    for (const row of (deliveryRows ?? []) as Array<{ order_id: string; status: string; driver_id: string | null }>) {
       if (row.order_id) statusMap[row.order_id] = row.status;
+      if (row.order_id) driverMap[row.order_id] = row.driver_id;
     }
     setDeliveryStatuses(statusMap);
+    setDeliveryDriverIds(driverMap);
     // delivery_settings (manual peak)
     try {
       // @ts-ignore
@@ -116,6 +140,7 @@ function Admin() {
     (async () => {
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return;
+      void requestNotificationPermissionIfNeeded();
       const r = await getAccessRole(u.user.id);
       setRole(r as any);
       setChecking(false);
@@ -152,8 +177,7 @@ function Admin() {
     const current = orders.find((order) => order.id === id);
     // Prevent marking handed_to_driver when no driver is assigned to the delivery
     if (status === "handed_to_driver") {
-      const assignedDeliveryStatus = deliveryStatuses[id];
-      if (!assignedDeliveryStatus) {
+      if (!deliveryDriverIds[id]) {
         toast.error("Cannot mark handed to driver: no driver assigned");
         return;
       }
@@ -182,6 +206,13 @@ function Admin() {
     } else {
       toast.success(`Marked ${STATUS_META[nextStatus].label}`);
     }
+    void logAdminAction({
+      action_type: status === "cancelled" ? "order_cancelled" : "order_status_changed",
+      action_description: `Changed order ${current?.order_number ?? id} to ${nextStatus}`,
+      target_type: "order",
+      target_id: id,
+      metadata: { before: current?.status ?? null, after: nextStatus, fulfillment: current?.fulfillment ?? null },
+    });
   }
 
   async function verifyOrder(order: Order, pinAttempt: string) {
@@ -202,6 +233,7 @@ function Admin() {
       await supabase.from("deliveries").update({ status: "delivered" } as never).eq("order_id", order.id);
     }
     toast.success(`Order ${order.order_number} verified & completed`);
+    void logAdminAction({ action_type: "order_verified", action_description: `Verified and completed order ${order.order_number}`, target_type: "order", target_id: order.id, metadata: { before: order.status, after: "completed" } });
   }
 
   async function signOut() {
@@ -305,6 +337,9 @@ function Admin() {
             <Link to="/admin/revenue" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
               <TrendingUp className="h-3.5 w-3.5" /> Revenue
             </Link>
+            <Link to="/admin/audit-trail" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
+              <ShieldCheck className="h-3.5 w-3.5" /> Audit Trail
+            </Link>
             <button onClick={load} className="grid h-8 w-8 place-items-center rounded-full border hover:bg-accent"><RefreshCw className="h-4 w-4" /></button>
             <button onClick={toggleManualPeak} title="Toggle peak mode" className={"grid h-8 w-8 place-items-center rounded-full border hover:bg-accent " + (manualPeak ? "bg-amber-500 text-white" : "")}>{manualPeak ? <Sparkles className="h-4 w-4" /> : <Clock className="h-4 w-4" />}</button>
             <button onClick={signOut} className="grid h-8 w-8 place-items-center rounded-full border hover:bg-accent"><LogOut className="h-4 w-4" /></button>
@@ -353,6 +388,9 @@ function Admin() {
                 </Link>
                 <Link to="/admin/revenue" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}>
                   <TrendingUp className="h-4 w-4" /> {!sidebarCollapsed && "Revenue Overview"}
+                </Link>
+                <Link to="/admin/audit-trail" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}>
+                  <ShieldCheck className="h-4 w-4" /> {!sidebarCollapsed && "Audit Trail"}
                 </Link>
               </nav>
             </div>
@@ -441,6 +479,8 @@ function Admin() {
                 branchName={branch?.city ?? "—"}
                 branchPhone={branch?.phone ?? null}
                 deliveryStatus={deliveryStatuses[o.id]}
+                deliveryDriverId={deliveryDriverIds[o.id]}
+                driverName={o.driver_id ? driverNames[o.driver_id] : undefined}
                 onUpdateStatus={updateStatus}
                 onVerify={verifyOrder}
               />
@@ -455,9 +495,9 @@ function Admin() {
 }
 
 function OrderCard({
-  order: o, items, branchName, branchPhone, deliveryStatus, onUpdateStatus, onVerify,
+  order: o, items, branchName, branchPhone, deliveryStatus, deliveryDriverId, driverName, onUpdateStatus, onVerify,
 }: {
-  order: Order; items: ItemRow[]; branchName: string; branchPhone: string | null; deliveryStatus?: string | null;
+  order: Order; items: ItemRow[]; branchName: string; branchPhone: string | null; deliveryStatus?: string | null; deliveryDriverId?: string | null; driverName?: string;
   onUpdateStatus: (id: string, s: Order["status"]) => void;
   onVerify: (o: Order, pin: string) => void;
 }) {
@@ -503,6 +543,7 @@ function OrderCard({
           </div>
         )}
         {o.delivery_notes && <div className="mt-1 rounded-md bg-muted p-2 text-xs italic">{o.delivery_notes}</div>}
+        {o.fulfillment === "delivery" && driverName && <div className="mt-1 text-xs text-muted-foreground">Driver: <span className="font-semibold text-foreground">{driverName}</span></div>}
       </div>
       <ul className="mt-3 text-sm space-y-0.5 border-t pt-3">
         {items.map((i, idx) => (
@@ -556,11 +597,11 @@ function OrderCard({
           {next && shouldShowNext && (
             <button
               onClick={() => onUpdateStatus(o.id, next)}
-              disabled={next === "handed_to_driver" && !deliveryStatus}
-              title={next === "handed_to_driver" && !deliveryStatus ? "Assign a driver before handing to driver" : undefined}
+              disabled={next === "handed_to_driver" && !deliveryDriverId}
+              title={next === "handed_to_driver" && !deliveryDriverId ? "Assign a driver before handing to driver" : undefined}
               className={
                 "rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground hover:bg-brand-dark " +
-                (next === "handed_to_driver" && !deliveryStatus ? "opacity-50 cursor-not-allowed" : "")
+                (next === "handed_to_driver" && !deliveryDriverId ? "opacity-50 cursor-not-allowed" : "")
               }
             >
               → {STATUS_META[next as keyof typeof STATUS_META].label}

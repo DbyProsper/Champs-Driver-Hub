@@ -6,6 +6,7 @@ import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
 import { getMenuImageForItem } from "@/lib/menu-images";
 import { FALLBACK_MEDIA, type MediaAsset } from "@/lib/site-content";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin/menu")({
   head: () => ({ meta: [{ title: "Edit Menu — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -59,6 +60,7 @@ function MenuAdmin() {
       const { error } = await supabase.from("menu_items").update(patch).eq("id", id);
       if (error) { toast.error(`${id}: ${error.message}`); return; }
     }
+    void Promise.all(entries.map(([id, patch]) => logAdminAction({ action_type: "menu_item_updated", action_description: `Updated menu item ${id}`, target_type: "menu_item", target_id: id, metadata: { changes: patch } })));
     toast.success("Saved");
     setDirty({});
     load();
@@ -78,6 +80,7 @@ function MenuAdmin() {
     if (error) toast.error(error.message);
     else {
       toast.success("Item added");
+      void logAdminAction({ action_type: "menu_item_created", action_description: `Created menu item ${n.name.trim()}`, target_type: "menu_item", metadata: { category_id: catId, price_cents: Math.round(Number(n.price) * 100), variant: n.variant.trim() || null } });
       setNewItem({ ...newItem, [catId]: { name: "", variant: "", price: "" } });
       load();
     }
@@ -87,7 +90,7 @@ function MenuAdmin() {
     if (!confirm("Delete this item?")) return;
     const { error } = await supabase.from("menu_items").delete().eq("id", id);
     if (error) toast.error(error.message);
-    else { toast.success("Deleted"); load(); }
+    else { toast.success("Deleted"); void logAdminAction({ action_type: "menu_item_deleted", action_description: "Deleted menu item", target_type: "menu_item", target_id: id }); load(); }
   }
 
   async function addCategory() {
@@ -96,7 +99,7 @@ function MenuAdmin() {
     const maxSort = Math.max(0, ...cats.map((c) => c.sort_order));
     const { error } = await supabase.from("categories").insert({ name: newCat.trim(), slug, sort_order: maxSort + 10 } as never);
     if (error) toast.error(error.message);
-    else { toast.success("Category added"); setNewCat(""); load(); }
+    else { toast.success("Category added"); void logAdminAction({ action_type: "category_created", action_description: `Created category ${newCat.trim()}`, target_type: "category", metadata: { name: newCat.trim(), slug } }); setNewCat(""); load(); }
   }
 
   return (

@@ -227,6 +227,8 @@ export type Database = {
           tier2_max_km: number
           tier3_fee_cents: number
           tier3_max_km: number
+          delivery_enabled: boolean
+          drivers_dial_up_only: boolean
           updated_at: string
         }
         Insert: {
@@ -246,6 +248,8 @@ export type Database = {
           tier2_max_km?: number
           tier3_fee_cents?: number
           tier3_max_km?: number
+          delivery_enabled?: boolean
+          drivers_dial_up_only?: boolean
           updated_at?: string
         }
         Update: {
@@ -265,6 +269,8 @@ export type Database = {
           tier2_max_km?: number
           tier3_fee_cents?: number
           tier3_max_km?: number
+          delivery_enabled?: boolean
+          drivers_dial_up_only?: boolean
           updated_at?: string
         }
         Relationships: []

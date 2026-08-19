@@ -15,6 +15,7 @@ import {
   computeEtaRange,
   type DeliverySettings,
 } from "@/lib/delivery";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin/deliveries")({
   head: () => ({ meta: [{ title: "Deliveries — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -49,6 +50,7 @@ function DeliveriesPage() {
   const [branches, setBranches] = useState<Record<string, Branch>>({});
   const [settings, setSettings] = useState<DeliverySettings>(DEFAULT_DELIVERY_SETTINGS);
   const [batching, setBatching] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   // new driver form
   const [nd, setNd] = useState({ name: "", phone: "", email: "", branch_id: "", bank_name: "", bank_account_number: "", bank_account_holder: "" });
@@ -147,6 +149,7 @@ function DeliveriesPage() {
         if (error) throw error;
       }
       toast.success(`Auto-batched ${pending.length} deliveries into ${clusters.length} routes (${mode} mode)`);
+      void logAdminAction({ action_type: "deliveries_auto_batched", action_description: `Auto-batched ${pending.length} deliveries`, target_type: "delivery_batch", metadata: { delivery_count: pending.length, batch_count: clusters.length, mode } });
       load();
     } catch (err: any) {
       toast.error(err.message ?? "Auto-batch failed");
@@ -161,6 +164,7 @@ function DeliveriesPage() {
     try {
       await adminUpsertDriverByEmail({ data: { email: nd.email.trim(), name: nd.name.trim(), phone: nd.phone.trim(), branchId: nd.branch_id || undefined, bankName: nd.bank_name, bankAccountNumber: nd.bank_account_number, bankAccountHolder: nd.bank_account_holder } });
       toast.success("Driver added and access granted");
+      void logAdminAction({ action_type: "driver_created", action_description: `Created driver ${nd.name.trim()}`, target_type: "driver", metadata: { email: nd.email.trim(), branch_id: nd.branch_id || null } });
       setNd({ name: "", phone: "", email: "", branch_id: "", bank_name: "", bank_account_number: "", bank_account_holder: "" });
       load();
     } catch (err: any) {
@@ -174,6 +178,7 @@ function DeliveriesPage() {
     try {
       await approveDriverApplication({ data: { applicationId: app.id } });
       toast.success(`${app.name} approved as driver`);
+      void logAdminAction({ action_type: "driver_approved", action_description: `Approved driver ${app.name}`, target_type: "driver_application", target_id: app.id, metadata: { name: app.name } });
       load();
     } catch (err: any) {
       toast.error(err.message ?? "Could not approve driver request");
@@ -184,6 +189,7 @@ function DeliveriesPage() {
     try {
       await rejectDriverApplication({ data: { applicationId: app.id } });
       toast.success("Driver request rejected");
+      void logAdminAction({ action_type: "driver_rejected", action_description: `Rejected driver ${app.name}`, target_type: "driver_application", target_id: app.id, metadata: { name: app.name } });
       load();
     } catch (err: any) {
       toast.error(err.message ?? "Could not reject driver request");
@@ -194,6 +200,7 @@ function DeliveriesPage() {
     if (!confirm("Remove this driver?")) return;
     const { error } = await supabase.from("drivers").delete().eq("id", id);
     if (error) return toast.error(error.message);
+    void logAdminAction({ action_type: "driver_deleted", action_description: "Deleted driver profile", target_type: "driver", target_id: id });
     load();
   }
 
@@ -206,22 +213,35 @@ function DeliveriesPage() {
   }
 
   async function assignDriver(deliveryId: string, driverId: string | null) {
+    const delivery = deliveries.find((entry) => entry.id === deliveryId);
+    const previousDriverId = delivery?.driver_id ?? null;
     const patch: any = { driver_id: driverId };
     if (driverId) patch.status = "accepted";
     const { error } = await supabase.from("deliveries").update(patch).eq("id", deliveryId);
     if (error) return toast.error(error.message);
 
-    const delivery = deliveries.find((entry) => entry.id === deliveryId);
     if (delivery?.order_id) {
-      const { error: orderError } = await supabase.from("orders").update({ driver_id: driverId }).eq("id", delivery.order_id);
+      const orderPatch: Record<string, unknown> = { driver_id: driverId };
+      if (driverId && previousDriverId && previousDriverId !== driverId) orderPatch.status = "ready";
+      const { error: orderError } = await supabase.from("orders").update(orderPatch).eq("id", delivery.order_id);
       if (orderError) {
         toast.error(orderError.message);
         return;
       }
+      void logAdminAction({ action_type: "driver_assigned", action_description: `Assigned order ${delivery.order_id} to a driver`, target_type: "order", target_id: delivery.order_id, metadata: { before_driver_id: previousDriverId, after_driver_id: driverId, before_status: delivery.status, after_status: driverId && previousDriverId && previousDriverId !== driverId ? "ready" : delivery.status } });
     }
 
     toast.success("Assignment updated");
     load();
+  }
+
+  async function saveDeliveryOptions() {
+    setSettingsSaving(true);
+    const { error } = await supabase.from("delivery_settings").update({ delivery_enabled: settings.delivery_enabled, drivers_dial_up_only: settings.drivers_dial_up_only } as never).eq("id", "default");
+    setSettingsSaving(false);
+    if (error) return toast.error(error.message);
+    toast.success("Delivery options saved");
+    void logAdminAction({ action_type: "delivery_settings_updated", action_description: "Updated delivery options", target_type: "delivery_settings", target_id: "default", metadata: { delivery_enabled: settings.delivery_enabled, drivers_dial_up_only: settings.drivers_dial_up_only } });
   }
 
   const activeDeliveries = useMemo(() => deliveries.filter((d) => d.status !== "delivered" && d.status !== "cancelled"), [deliveries]);
@@ -240,6 +260,16 @@ function DeliveriesPage() {
       </header>
 
       <div className="mx-auto max-w-5xl px-4 py-4 space-y-6">
+        <section className="rounded-2xl border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div><h2 className="font-display text-lg text-brand">Delivery options</h2><p className="text-xs text-muted-foreground">Control how customers and drivers use delivery.</p></div>
+            <button onClick={saveDeliveryOptions} disabled={settingsSaving} className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground disabled:opacity-60">{settingsSaving ? "Saving..." : "Save"}</button>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={settings.delivery_enabled} onChange={(e) => setSettings({ ...settings, delivery_enabled: e.target.checked })} /> <span><span className="font-semibold">Delivery enabled</span><span className="block text-xs text-muted-foreground">Allow customers to choose delivery.</span></span></label>
+            <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={settings.drivers_dial_up_only} onChange={(e) => setSettings({ ...settings, drivers_dial_up_only: e.target.checked })} /> <span><span className="font-semibold">Drivers dial up only</span><span className="block text-xs text-muted-foreground">Customers can order pickup; drivers handle delivery orders.</span></span></label>
+          </div>
+        </section>
         <section className="rounded-2xl border bg-card p-4">
           <h2 className="font-display text-lg text-brand mb-3">Drivers</h2>
           <div className="grid gap-2 md:grid-cols-5">
@@ -295,6 +325,7 @@ function DeliveriesPage() {
                     else {
                       setDrivers((prev) => prev.map((item) => item.id === d.id ? { ...item, branch_id: e.target.value || null } : item));
                       toast.success("Driver branch updated");
+                      void logAdminAction({ action_type: "driver_profile_updated", action_description: `Updated branch for driver ${d.name}`, target_type: "driver", target_id: d.id, metadata: { before_branch_id: d.branch_id, after_branch_id: e.target.value || null } });
                     }
                   }} className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
                     <option value="">No branch</option>

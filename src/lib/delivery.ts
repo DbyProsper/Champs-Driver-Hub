@@ -17,6 +17,8 @@ export type DeliverySettings = {
   peak_capacity_min: number;
   peak_capacity_max: number;
   manual_peak_mode?: boolean;
+  delivery_enabled: boolean;
+  drivers_dial_up_only: boolean;
 };
 
 export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
@@ -36,6 +38,8 @@ export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
   peak_capacity_min: 2,
   peak_capacity_max: 4,
   manual_peak_mode: false,
+  delivery_enabled: true,
+  drivers_dial_up_only: false,
 };
 
 export async function fetchDeliverySettings(): Promise<DeliverySettings> {
@@ -64,6 +68,8 @@ export async function fetchDeliverySettings(): Promise<DeliverySettings> {
     peak_capacity_min: num("peak_capacity_min", DEFAULT_DELIVERY_SETTINGS.peak_capacity_min),
     peak_capacity_max: num("peak_capacity_max", DEFAULT_DELIVERY_SETTINGS.peak_capacity_max),
     manual_peak_mode: (d["manual_peak_mode"] == null ? DEFAULT_DELIVERY_SETTINGS.manual_peak_mode : Boolean(d["manual_peak_mode"])),
+    delivery_enabled: d["delivery_enabled"] == null ? DEFAULT_DELIVERY_SETTINGS.delivery_enabled : Boolean(d["delivery_enabled"]),
+    drivers_dial_up_only: d["drivers_dial_up_only"] == null ? DEFAULT_DELIVERY_SETTINGS.drivers_dial_up_only : Boolean(d["drivers_dial_up_only"]),
   };
 }
 

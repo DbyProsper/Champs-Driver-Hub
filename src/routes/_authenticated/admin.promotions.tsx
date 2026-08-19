@@ -4,6 +4,7 @@ import { ArrowLeft, Plus, Trash2, Save, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
+import { logAdminAction } from "@/lib/audit";
 
 export const Route = createFileRoute("/_authenticated/admin/promotions")({
   head: () => ({ meta: [{ title: "Promotions — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -89,6 +90,7 @@ function PromoAdmin() {
       if (error) { toast.error(error.message); return; }
       if (current) await syncPromoMenuItem({ ...current, ...patch } as Promo);
     }
+    void Promise.all(entries.map(([id, patch]) => logAdminAction({ action_type: "promotion_updated", action_description: `Updated promotion ${id}`, target_type: "promotion", target_id: id, metadata: { changes: patch } })));
     toast.success("Saved");
     setDirty({});
     load();
@@ -111,6 +113,7 @@ function PromoAdmin() {
     if (error) { toast.error(error.message); return; }
     await syncPromoMenuItem(data as Promo);
     toast.success("Promo created");
+    void logAdminAction({ action_type: "promotion_created", action_description: `Created promotion ${newP.title.trim()}`, target_type: "promotion", target_id: data.id, metadata: payload });
     setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "" });
     load();
   }
@@ -126,6 +129,7 @@ function PromoAdmin() {
         if (existing?.id) await supabase.from("menu_items").delete().eq("id", existing.id);
       }
       toast.success("Deleted");
+      void logAdminAction({ action_type: "promotion_deleted", action_description: `Deleted promotion ${promo?.title ?? id}`, target_type: "promotion", target_id: id });
       load();
     }
   }

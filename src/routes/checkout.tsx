@@ -148,6 +148,7 @@ function Checkout() {
   }, [form.fulfillment, branch?.latitude, branch?.longitude, coords?.lat, coords?.lng, addressConfirmed]);
 
   const deliveryEligibility = useMemo(() => getCartDeliveryEligibility(items, subtotalCents), [items, subtotalCents]);
+  const customerDeliveryAllowed = settings.delivery_enabled && !settings.drivers_dial_up_only;
   const quote: DeliveryQuote | null = useMemo(() => {
     if (form.fulfillment !== "delivery") return null;
     if (!deliveryEligibility.allowed) return null;
@@ -197,6 +198,7 @@ function Checkout() {
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
 
     if (parsed.data.fulfillment === "delivery") {
+      if (!customerDeliveryAllowed) return toast.error(settings.delivery_enabled ? "Customer delivery is temporarily unavailable" : "Delivery is currently disabled");
       if (!deliveryEligibility.allowed) return toast.error(deliveryEligibility.reason ?? "Delivery unavailable for this order");
       if (!coords) return toast.error("Please share your delivery location");
       if (!addressConfirmed) return toast.error("Please confirm your delivery address by selecting a suggestion or using your current location");
@@ -312,9 +314,14 @@ function Checkout() {
               <span>Delivery currently unavailable — no drivers online. You can still order for pickup.</span>
             </div>
           )}
+          {!customerDeliveryAllowed && (
+            <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              {settings.delivery_enabled ? "Customer delivery is temporarily unavailable. Pickup is still available." : "Delivery is currently disabled. Pickup is still available."}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
             {(["pickup", "delivery"] as const).map((v) => {
-              const disabled = v === "delivery" && driversOnline === 0;
+              const disabled = v === "delivery" && (!customerDeliveryAllowed || driversOnline === 0);
               return (
                 <button
                   type="button"
