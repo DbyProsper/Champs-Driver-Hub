@@ -166,10 +166,25 @@ function DriverPage() {
   useEffect(() => {
     const channel = supabase
       .channel("driver-deliveries")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
-      .subscribe();
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "deliveries" }, (payload) => {
+        const delivery = payload.new as Partial<Delivery>;
+        if (delivery.id && delivery.status !== "delivered" && delivery.status !== "cancelled") {
+          toast.success("New delivery available");
+          fireNotification("New Champs delivery", "A new order is ready in your driver queue", `new-delivery-${delivery.id}`);
+        }
+        void load();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "deliveries" }, () => { void load(); })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "deliveries" }, () => { void load(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => { void load(); })
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("Driver realtime channel unavailable", status);
+        }
+      });
+    const fallbackRefresh = window.setInterval(() => { void load(); }, 15_000);
     return () => {
+      window.clearInterval(fallbackRefresh);
       supabase.removeChannel(channel);
     };
   }, [load]);
