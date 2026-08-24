@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Save, Plus, Trash2, Image as ImageIcon, X } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, Image as ImageIcon, X, ArrowUp, ArrowDown, BadgePercent } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -23,6 +23,9 @@ type Item = {
   category_id: string;
   sort_order: number;
   image_url: string | null;
+  special_price_cents: number | null;
+  burger_only_price_cents: number | null;
+  icon_text: string | null;
 };
 
 type Cat = { id: string; name: string; slug: string; sort_order: number };
@@ -93,6 +96,16 @@ function MenuAdmin() {
     else { toast.success("Deleted"); void logAdminAction({ action_type: "menu_item_deleted", action_description: "Deleted menu item", target_type: "menu_item", target_id: id }); load(); }
   }
 
+  async function moveItem(item: Item, direction: -1 | 1) {
+    const siblings = items.filter((entry) => entry.category_id === item.category_id).sort((a, b) => a.sort_order - b.sort_order);
+    const index = siblings.findIndex((entry) => entry.id === item.id);
+    const other = siblings[index + direction];
+    if (!other) return;
+    const { error } = await (supabase as any).rpc("reorder_menu_items", { _first_id: item.id, _second_id: other.id });
+    if (error) return toast.error(error.message);
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, sort_order: other.sort_order } : entry.id === other.id ? { ...entry, sort_order: item.sort_order } : entry));
+  }
+
   async function addCategory() {
     if (!newCat.trim()) return;
     const slug = newCat.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -134,7 +147,8 @@ function MenuAdmin() {
                   const auto = getMenuImageForItem(cur.name, cur.variant_label);
                   const imgSrc = cur.image_url || auto.src;
                   return (
-                    <div key={it.id} className="flex flex-wrap items-center gap-2 p-3">
+                    <div key={it.id} className="grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-start">
+                      <div className="flex items-center gap-2 sm:flex-col">
                       <button
                         type="button"
                         onClick={() => setPickerFor(it.id)}
@@ -146,17 +160,26 @@ function MenuAdmin() {
                           {cur.image_url ? "Custom" : "Auto"}
                         </span>
                       </button>
+                      <div className="flex gap-1">
+                        <button type="button" onClick={() => void moveItem(it, -1)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label={`Move ${cur.name} up`}><ArrowUp className="h-3.5 w-3.5" /></button>
+                        <button type="button" onClick={() => void moveItem(it, 1)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label={`Move ${cur.name} down`}><ArrowDown className="h-3.5 w-3.5" /></button>
+                      </div>
+                      </div>
+                      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                       <input
-                        className="flex-1 min-w-40 rounded-md border px-2 py-1.5 text-sm"
+                        className="rounded-md border px-2 py-1.5 text-sm sm:col-span-2"
                         value={cur.name}
                         onChange={(e) => edit(it.id, { name: e.target.value })}
                       />
                       <input
-                        className="w-32 rounded-md border px-2 py-1.5 text-sm"
+                        className="rounded-md border px-2 py-1.5 text-sm"
                         placeholder="variant"
                         value={cur.variant_label ?? ""}
                         onChange={(e) => edit(it.id, { variant_label: e.target.value || null })}
                       />
+                      <input className="rounded-md border px-2 py-1.5 text-sm" maxLength={12} placeholder="Icon, e.g. 🍔" value={cur.icon_text ?? ""} onChange={(e) => edit(it.id, { icon_text: e.target.value || null })} />
+                      <textarea className="min-h-20 rounded-md border px-2 py-1.5 text-sm sm:col-span-2" placeholder="Menu description" value={cur.description ?? ""} onChange={(e) => edit(it.id, { description: e.target.value || null })} />
+                      <label className="space-y-1 text-xs"><span className="text-muted-foreground">Regular price</span>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">R</span>
                         <input
@@ -166,7 +189,10 @@ function MenuAdmin() {
                           onChange={(e) => edit(it.id, { price_cents: Math.round(Number(e.target.value) * 100) })}
                         />
                       </div>
-                      <label className="inline-flex items-center gap-2 text-xs">
+                      </label>
+                      <label className="space-y-1 text-xs"><span className="inline-flex items-center gap-1 text-brand"><BadgePercent className="h-3 w-3" /> Special price (optional)</span><div className="flex items-center gap-1"><span>R</span><input type="number" step="0.01" min="0" className="w-full rounded-md border px-2 py-1.5 text-sm" value={cur.special_price_cents == null ? "" : (cur.special_price_cents / 100).toFixed(2)} onChange={(e) => edit(it.id, { special_price_cents: e.target.value === "" ? null : Math.round(Number(e.target.value) * 100) })} /></div></label>
+                      <label className="space-y-1 text-xs sm:col-span-2"><span className="text-muted-foreground">Burger-only price (leave empty when not applicable)</span><div className="flex items-center gap-1"><span>R</span><input type="number" step="0.01" min="0" className="w-full rounded-md border px-2 py-1.5 text-sm" value={cur.burger_only_price_cents == null ? "" : (cur.burger_only_price_cents / 100).toFixed(2)} onChange={(e) => edit(it.id, { burger_only_price_cents: e.target.value === "" ? null : Math.round(Number(e.target.value) * 100) })} /></div></label>
+                      <label className="inline-flex items-center gap-2 text-xs sm:col-span-2">
                         <input
                           type="checkbox"
                           checked={cur.is_available}
@@ -174,8 +200,9 @@ function MenuAdmin() {
                         />
                         Available
                       </label>
-                      <span className="text-xs text-muted-foreground tabular-nums">{formatZAR(cur.price_cents ?? 0)}</span>
-                      <button onClick={() => removeItem(it.id)} className="ml-auto grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:text-brand hover:bg-brand/10" aria-label="Delete">
+                      <span className="text-xs text-muted-foreground tabular-nums sm:col-span-2">Displayed: {formatZAR(cur.special_price_cents ?? cur.price_cents ?? 0)}</span>
+                      </div>
+                      <button onClick={() => removeItem(it.id)} className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:text-brand hover:bg-brand/10" aria-label="Delete">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                       {pickerFor === it.id && (
@@ -192,7 +219,7 @@ function MenuAdmin() {
                 })}
 
                 {/* Add new item to category */}
-                <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/40">
+                <div className="grid gap-2 bg-muted/40 p-3 sm:grid-cols-[1fr_8rem_7rem_auto]">
                   <input
                     className="flex-1 min-w-40 rounded-md border px-2 py-1.5 text-sm"
                     placeholder="New item name"

@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { User } from "lucide-react";
 import { BranchSwitcher } from "@/components/BranchSwitcher";
+import { NotificationCenter } from "@/components/NotificationCenter";
 
 const LOGO_SRC = "/images/champs/champs-logo.png";
 
@@ -17,6 +18,7 @@ export function Header({ subtitle }: { subtitle?: string }) {
         </Link>
         <div className="ml-auto flex items-center gap-1.5">
           <BranchSwitcher />
+          <NotificationCenter />
           <Link
             to="/auth"
             aria-label="Account"

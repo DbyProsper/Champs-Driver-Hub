@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { MapPin, Clock, ChevronRight, Flame, Sparkles, Phone } from "lucide-react";
 import { Header } from "@/components/Header";
@@ -9,6 +9,7 @@ import { useBranch } from "@/lib/branch";
 import { activePromotionsQuery } from "@/lib/user-queries";
 import { formatZAR } from "@/lib/format";
 import { FALLBACK_SETTINGS, imageSrcFor, siteContentQuery } from "@/lib/site-content";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,11 +25,20 @@ function Home() {
   const { active } = useBranch();
   const { data: promos = [] } = useQuery(activePromotionsQuery);
   const { data: content } = useQuery(siteContentQuery);
+  const queryClient = useQueryClient();
   const settings = content?.settings ?? FALLBACK_SETTINGS;
   const media = content?.media ?? [];
   const heroSrc = imageSrcFor(settings.hero_image_key, media, "girls-lunch");
   const headline = useTypewriter([settings.hero_line_one, settings.hero_line_two], { typeMs: 65, holdMs: 1600, eraseMs: 35 });
   const heroBody = settings.hero_body.replace("your town", active?.city ?? "your town");
+
+  useEffect(() => {
+    const channel = supabase.channel("homepage-appearance")
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings" }, () => void queryClient.invalidateQueries({ queryKey: ["site-content"] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => void queryClient.invalidateQueries({ queryKey: ["site-content"] }))
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
 
   return (
     <div className="min-h-screen pb-24">
@@ -105,8 +115,8 @@ function Home() {
           {[
             { title: "Chicken", desc: "1pc → 21pc bucket", img: imageSrcFor("chicken-hero", media, "chicken-hero"), slug: "chicken" },
             { title: "Combos", desc: "Chicken + chips", img: imageSrcFor("chicken-chips", media, "chicken-chips"), slug: "combos" },
-            { title: "Burgers", desc: "Mississippi, Dekka", img: imageSrcFor("chef", media, "chef"), slug: "burgers" },
-            { title: "Shakes", desc: "Cold & creamy", img: imageSrcFor("couple", media, "couple"), slug: "shakes" },
+            { title: "Burgers", desc: "Mississippi, Dekka", img: imageSrcFor("burger-card", media, "burger-card"), slug: "burgers" },
+            { title: "Shakes", desc: "Cold & creamy", img: imageSrcFor("shakes-card", media, "shakes-card"), slug: "shakes" },
           ].map((c) => (
             <Link
               key={c.slug}
@@ -180,10 +190,10 @@ function useTypewriter(
 ): TypeState {
   const { typeMs = 60, holdMs = 1500, eraseMs = 30 } = opts;
   const [state, setState] = useState<TypeState>({ line1: "", showBreak: false, line2: "" });
+  const [a = "", b = ""] = lines;
 
   useEffect(() => {
     let cancelled = false;
-    const [a, b] = lines;
 
     async function run() {
       while (!cancelled) {
@@ -220,8 +230,7 @@ function useTypewriter(
     }
     run();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [a, b, typeMs, holdMs, eraseMs]);
 
   return state;
 }

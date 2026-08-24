@@ -19,6 +19,8 @@ export type DeliverySettings = {
   manual_peak_mode?: boolean;
   delivery_enabled: boolean;
   drivers_dial_up_only: boolean;
+  pickup_enabled: boolean;
+  auto_ready_mode: "automatic" | "prompt";
 };
 
 export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
@@ -40,6 +42,8 @@ export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
   manual_peak_mode: false,
   delivery_enabled: true,
   drivers_dial_up_only: false,
+  pickup_enabled: true,
+  auto_ready_mode: "prompt",
 };
 
 export async function fetchDeliverySettings(): Promise<DeliverySettings> {
@@ -70,6 +74,8 @@ export async function fetchDeliverySettings(): Promise<DeliverySettings> {
     manual_peak_mode: (d["manual_peak_mode"] == null ? DEFAULT_DELIVERY_SETTINGS.manual_peak_mode : Boolean(d["manual_peak_mode"])),
     delivery_enabled: d["delivery_enabled"] == null ? DEFAULT_DELIVERY_SETTINGS.delivery_enabled : Boolean(d["delivery_enabled"]),
     drivers_dial_up_only: d["drivers_dial_up_only"] == null ? DEFAULT_DELIVERY_SETTINGS.drivers_dial_up_only : Boolean(d["drivers_dial_up_only"]),
+    pickup_enabled: d["pickup_enabled"] == null ? DEFAULT_DELIVERY_SETTINGS.pickup_enabled : Boolean(d["pickup_enabled"]),
+    auto_ready_mode: d["auto_ready_mode"] === "automatic" ? "automatic" : "prompt",
   };
 }
 
@@ -140,7 +146,7 @@ export async function getRoadDistanceKm(
             origins: [originLocation],
             destinations: [destinationLocation],
             travelMode: g.maps.TravelMode.DRIVING,
-            routingPreference: g.maps.RoutingPreference.FEWER_HIGHWAYS,
+            routingPreference: (g.maps as any).RoutingPreference?.FEWER_HIGHWAYS ?? "FEWER_HIGHWAYS",
           },
           (result: any, status: string) => {
             const element = result?.rows?.[0]?.elements?.[0];

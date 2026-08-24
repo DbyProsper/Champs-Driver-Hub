@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { Plus, Minus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Header } from "@/components/Header";
@@ -11,7 +10,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getMenuImageForItem } from "@/lib/menu-images";
 import { getMenuIconForItem, getCategoryIcon } from "@/lib/menu-icons";
-import { MenuPageSkeleton } from "@/components/Loader";
 
 export const Route = createFileRoute("/menu")({
   head: () => ({
@@ -30,13 +28,7 @@ export const Route = createFileRoute("/menu")({
 const SCROLL_OFFSET = 112;
 
 function MenuPage() {
-  const query = useQuery(menuQuery);
-  const data = query.data;
-
-  if (!data) {
-    return <MenuPageSkeleton />;
-  }
-
+  const data = Route.useLoaderData();
   const { categories, items } = data;
   const displayCategories = useMemo(() => {
     const hasSalads = categories.some((c) => c.slug === "salads" || c.name.toLowerCase().includes("salad"));
@@ -238,7 +230,10 @@ function MenuPage() {
 
 function Row({ item }: { item: MenuItem }) {
   const { items, add, setQty } = useCart();
-  const inCart = items.find((i) => i.id === item.id);
+  const mealLineId = `${item.id}:meal`;
+  const burgerLineId = `${item.id}:burger-only`;
+  const hasBurgerOnly = item.burger_only_price_cents != null;
+  const inCart = items.find((i) => i.id === (hasBurgerOnly ? mealLineId : item.id));
   const qty = inCart?.quantity ?? 0;
 
   const label = item.variant_label ? `${item.name} — ${item.variant_label}` : item.name;
@@ -256,20 +251,25 @@ function Row({ item }: { item: MenuItem }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-3">
           <div className="font-semibold text-sm truncate">{label}</div>
-          <div className="font-display text-lg text-brand shrink-0">{formatZAR(item.price_cents)}</div>
+          <div className="shrink-0 text-right"><div className="font-display text-lg text-brand">{formatZAR(item.special_price_cents ?? item.price_cents)}</div>{item.special_price_cents != null && <div className="text-[11px] text-muted-foreground line-through">{formatZAR(item.price_cents)}</div>}</div>
         </div>
         {description && (
           <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
-            <span aria-hidden className="mr-0 inline-block">{getMenuIconForItem(item.name, item.variant_label ?? undefined)}</span>
+            <span aria-hidden className="mr-0 inline-block">{item.icon_text || getMenuIconForItem(item.name, item.variant_label ?? undefined)}</span>
             {description}
           </div>
         )}
         {!available && <div className="mt-0.5 text-[10px] uppercase tracking-wider text-brand font-bold">Sold out</div>}
       </div>
-      {!available ? null : qty === 0 ? (
+      {!available ? null : hasBurgerOnly ? (
+        <div className="flex shrink-0 flex-col gap-1.5">
+          <button onClick={() => { add({ id: mealLineId, menu_item_id: item.id, name: item.name, variant: item.variant_label || "Meal", unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url }); toast.success(`Added ${label} meal`); }} className="rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground">Meal · {formatZAR(item.special_price_cents ?? item.price_cents)}</button>
+          <button onClick={() => { add({ id: burgerLineId, menu_item_id: item.id, name: item.name, variant: "Burger only", unit_price_cents: item.burger_only_price_cents!, image_url: item.image_url }); toast.success(`Added ${item.name} burger only`); }} className="rounded-full border px-3 py-1.5 text-[11px] font-bold">Burger only · {formatZAR(item.burger_only_price_cents!)}</button>
+        </div>
+      ) : qty === 0 ? (
         <button
           onClick={() => {
-            add({ id: item.id, name: item.name, variant: item.variant_label, unit_price_cents: item.price_cents, image_url: item.image_url });
+            add({ id: item.id, menu_item_id: item.id, name: item.name, variant: item.variant_label, unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url });
             toast.success(`Added ${label}`);
           }}
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground hover:bg-brand-dark"
@@ -292,6 +292,7 @@ function Row({ item }: { item: MenuItem }) {
 }
 
 function getMenuDescription(name: string, variant: string | null, description: string | null) {
+  if (description?.trim()) return description.trim();
   const lower = `${name} ${variant ?? ""}`.toLowerCase();
 
   if (/fish burger/.test(lower)) {

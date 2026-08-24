@@ -47,6 +47,8 @@ export function AddressAutocomplete({
   const [loading, setLoading] = useState(false);
   const tokenRef = useRef<any>(null);
   const debRef = useRef<number | null>(null);
+  const selectedValueRef = useRef<string | null>(null);
+  const requestRef = useRef(0);
 
   useEffect(() => {
     loadMaps().catch(() => {});
@@ -54,6 +56,12 @@ export function AddressAutocomplete({
 
   useEffect(() => {
     if (debRef.current) window.clearTimeout(debRef.current);
+    if (selectedValueRef.current === value) {
+      setSuggestions([]);
+      setOpen(false);
+      setLoading(false);
+      return;
+    }
     if (!value || value.trim().length < 3) {
       setSuggestions([]);
       setOpen(false);
@@ -61,6 +69,7 @@ export function AddressAutocomplete({
     }
 
     debRef.current = window.setTimeout(async () => {
+      const requestId = ++requestRef.current;
       try {
         setLoading(true);
         const g = await loadMaps();
@@ -104,6 +113,7 @@ export function AddressAutocomplete({
             };
           })
           .filter(Boolean) as Suggestion[];
+        if (requestId !== requestRef.current || selectedValueRef.current === value) return;
         setSuggestions(list);
         setOpen(list.length > 0);
       } catch {
@@ -120,6 +130,7 @@ export function AddressAutocomplete({
   }, [value, bias?.lat, bias?.lng]);
 
   async function pick(s: Suggestion) {
+    requestRef.current += 1;
     setOpen(false);
     setSuggestions([]);
     try {
@@ -133,11 +144,13 @@ export function AddressAutocomplete({
       const label = place.displayName ?? place.formattedAddress ?? `${s.text}${s.secondary ? ` · ${s.secondary}` : ""}`;
       const loc = place.location;
       // Update the input value first, then notify parent of a confirmed selection.
+      selectedValueRef.current = label;
       onChange(label);
       if (loc) onSelect({ address: label, lat: loc.lat(), lng: loc.lng() });
       tokenRef.current = null;
     } catch {
       const fallback = `${s.text}${s.secondary ? ` · ${s.secondary}` : ""}`;
+      selectedValueRef.current = fallback;
       onChange(fallback);
       onSelect({ address: fallback, lat: bias?.lat ?? 0, lng: bias?.lng ?? 0 });
     }
@@ -150,6 +163,7 @@ export function AddressAutocomplete({
         placeholder={placeholder}
         value={value}
         onChange={(e) => {
+          if (e.target.value !== selectedValueRef.current) selectedValueRef.current = null;
           onChange(e.target.value);
           setOpen(true);
         }}

@@ -4,13 +4,14 @@ import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { requestDriverApplication } from "@/lib/admin.functions";
 import { toast } from "sonner";
+import { SA_BANKS } from "@/lib/sa-banks";
 
 export const Route = createFileRoute("/become-driver")({
   head: () => ({ meta: [{ title: "Become a driver — Champs" }, { name: "robots", content: "noindex" }] }),
   component: BecomeDriver,
 });
 
-export default function BecomeDriver() {
+function BecomeDriver() {
   const nav = useNavigate();
   const [form, setForm] = useState({
     name: "",
@@ -40,9 +41,11 @@ export default function BecomeDriver() {
 
   async function uploadFile(file: File | null, keyPrefix: string) {
     if (!file) return null;
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) throw new Error("Please sign in again before uploading documents");
     const id = `${Date.now()}_${file.name}`;
-    const path = `${keyPrefix}/${id}`;
-    const { data, error } = await supabase.storage.from("driver-uploads").upload(path, file, { upsert: true });
+    const path = `${authData.user.id}/${keyPrefix}/${id}`;
+    const { error } = await supabase.storage.from("driver-uploads").upload(path, file);
     if (error) throw error;
     const { data: urlData } = await supabase.storage.from("driver-uploads").getPublicUrl(path);
     return urlData.publicUrl;
@@ -51,7 +54,9 @@ export default function BecomeDriver() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim() || !form.phone.trim()) return toast.error("Name and phone required");
-    if (!form.student_number.trim() && !/^\d{13}$/.test(form.id_number.trim())) return toast.error("Valid SA ID required (13 digits) or provide student number");
+    if (!form.student_number.trim() && !/^\d{13}$/.test(form.id_number.trim())) return toast.error("Valid SA ID (13 digits) or driver's licence number required");
+    if (!form.profile_file) return toast.error("A profile photo is required");
+    if (!form.bank_name.trim() || !form.bank_account_number.trim() || !form.bank_account_holder.trim()) return toast.error("Complete all banking details");
     setBusy(true);
     try {
       const profileUrl = await uploadFile(form.profile_file, "profile_photos");
@@ -108,7 +113,7 @@ export default function BecomeDriver() {
           <input placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="ID number (13 digits)" value={form.id_number} onChange={(e) => setForm({ ...form, id_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
-          <input placeholder="Student number (optional)" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
+          <input placeholder="Driver's licence number (use instead of ID)" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block rounded-3xl border border-dashed border-border bg-background p-4 text-sm">
@@ -121,7 +126,7 @@ export default function BecomeDriver() {
             </label>
 
             <label className="block rounded-3xl border border-dashed border-border bg-background p-4 text-sm">
-              <div className="mb-2 font-semibold">Selfie with ID</div>
+              <div className="mb-2 font-semibold">Selfie with ID or licence</div>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-input bg-card px-3 py-3">
                 <span className="truncate text-sm text-muted-foreground">{form.selfie_file ? form.selfie_file.name : "Choose a selfie image"}</span>
                 <span className="rounded-full bg-brand px-3 py-1 text-[11px] font-bold text-brand-foreground">Upload</span>
@@ -130,7 +135,10 @@ export default function BecomeDriver() {
             </label>
           </div>
 
-          <input placeholder="Bank name" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
+          <select value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand">
+            <option value="">Select your South African bank</option>
+            {SA_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+          </select>
           <input placeholder="Account number" value={form.bank_account_number} onChange={(e) => setForm({ ...form, bank_account_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="Account holder" value={form.bank_account_holder} onChange={(e) => setForm({ ...form, bank_account_holder: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
 

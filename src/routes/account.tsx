@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, Package, Repeat, Sparkles, ShieldCheck, ChevronRight, Bike } from "lucide-react";
+import { LogOut, Package, Repeat, Sparkles, ShieldCheck, ChevronRight, Bike, Settings } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
 import { Footer } from "@/components/Footer";
@@ -34,6 +34,10 @@ function Account() {
   const [branches, setBranches] = useState<Array<{ id: string; name: string; city: string }>>([]);
   const [driverBusy, setDriverBusy] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [complaints, setComplaints] = useState<Array<{ id: string; subject: string; details: string; status: string; category: string; order_id: string | null; created_at: string; resolution: string | null }>>([]);
+  const [selectedComplaint, setSelectedComplaint] = useState<(typeof complaints)[number] | null>(null);
+  const [complaintForm, setComplaintForm] = useState({ order_id: "", category: "service", subject: "", details: "" });
+  const [complaintBusy, setComplaintBusy] = useState(false);
 
   async function loadAccount() {
     setChecking(true);
@@ -67,6 +71,8 @@ function Account() {
     setDriverForm((f) => ({ ...f, name: p?.full_name || "", phone: p?.phone || "" }));
     const { data: app } = await supabase.from("driver_applications").select("status, admin_notes").eq("user_id", u.user.id).maybeSingle();
     setDriverApplication(app);
+    const { data: complaintRows } = await (supabase as any).from("customer_complaints").select("id,subject,details,status,category,order_id,created_at,resolution").eq("customer_id", u.user.id).order("created_at", { ascending: false });
+    setComplaints((complaintRows ?? []) as typeof complaints);
     setChecking(false);
   }
 
@@ -162,6 +168,22 @@ function Account() {
     }
   }
 
+  async function submitComplaint(event: React.FormEvent) {
+    event.preventDefault();
+    if (!userId) return;
+    if (complaintForm.subject.trim().length < 3 || complaintForm.details.trim().length < 5) return toast.error("Add a subject and enough detail for Champs to investigate");
+    setComplaintBusy(true);
+    try {
+      const selectedOrder = orders.find((order) => order.id === complaintForm.order_id);
+      const { error } = await (supabase as any).from("customer_complaints").insert({ customer_id: userId, order_id: selectedOrder?.id ?? null, driver_id: selectedOrder?.driver_id ?? null, category: complaintForm.category, subject: complaintForm.subject.trim(), details: complaintForm.details.trim() });
+      if (error) throw error;
+      setComplaintForm({ order_id: "", category: "service", subject: "", details: "" });
+      toast.success("Complaint sent to Champs");
+      await loadAccount();
+    } catch (error: any) { toast.error(error.message ?? "Could not send complaint"); }
+    finally { setComplaintBusy(false); }
+  }
+
   if (checking) return <AccountPageSkeleton />;
 
   if (!userId) {
@@ -196,6 +218,7 @@ function Account() {
           <div className="font-display text-3xl mt-0.5">{profile?.full_name || "Champs fan"}</div>
           {profile?.phone && <div className="text-sm opacity-90 mt-1">{profile.phone}</div>}
           <div className="mt-4 flex gap-2">
+            {!isStaff && !isDriver && <Link to="/profile" className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-3 py-1.5 text-xs font-bold hover:bg-white/30"><Settings className="h-3.5 w-3.5" /> Profile settings</Link>}
             {isStaff && (
               <Link to="/admin" className="inline-flex items-center gap-1.5 rounded-full bg-white/20 backdrop-blur px-3 py-1.5 text-xs font-bold hover:bg-white/30">
                 <ShieldCheck className="h-3.5 w-3.5" /> Admin
@@ -307,7 +330,7 @@ function Account() {
                       </div>
                     </Link>
                     <div className="text-right shrink-0">
-                      <div className="font-display text-lg">{formatZAR(o.subtotal_cents)}</div>
+                      <div className="font-display text-lg">{formatZAR(o.subtotal_cents + (o.delivery_fee_cents ?? 0))}</div>
                       <button
                         onClick={() => reorder(o.id)}
                         className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1 text-[11px] font-bold text-brand-foreground hover:bg-brand-dark"
@@ -324,6 +347,7 @@ function Account() {
             </ul>
           )}
         </section>
+
       </div>
 
       <BottomNav />

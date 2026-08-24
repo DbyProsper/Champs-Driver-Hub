@@ -17,13 +17,14 @@ type Order = {
   created_at: string;
   branch_id: string;
   status: "pending" | "preparing" | "ready" | "handed_to_driver" | "picked_up" | "on_the_way" | "out_for_delivery" | "completed" | "cancelled";
+  workflow_status: string;
 };
 
 type Branch = { id: string; city: string };
 
 type RevenueRange = "day" | "week" | "month" | "year" | "lifetime" | "custom";
 
-type RevenueRangeSelection = { type: RevenueRange; customDate?: string };
+type RevenueRangeSelection = { type: RevenueRange; customFrom?: string; customTo?: string };
 
 const REVENUE_RANGES: { value: RevenueRange; label: string }[] = [
   { value: "day", label: "Today" },
@@ -39,10 +40,11 @@ function matchesRevenueRange(createdAt: string, selection: RevenueRangeSelection
   if (Number.isNaN(created.getTime())) return false;
   if (selection.type === "lifetime") return true;
   if (selection.type === "custom") {
-    if (!selection.customDate) return true;
-    const selected = new Date(selection.customDate);
-    if (Number.isNaN(selected.getTime())) return false;
-    return created.getFullYear() === selected.getFullYear() && created.getMonth() === selected.getMonth() && created.getDate() === selected.getDate();
+    const from = selection.customFrom ? new Date(`${selection.customFrom}T00:00:00`) : null;
+    const to = selection.customTo ? new Date(`${selection.customTo}T23:59:59.999`) : null;
+    if (from && Number.isNaN(from.getTime())) return false;
+    if (to && Number.isNaN(to.getTime())) return false;
+    return (!from || created >= from) && (!to || created <= to);
   }
 
   const now = new Date();
@@ -63,13 +65,15 @@ function RevenueOverviewPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchFilter, setBranchFilter] = useState<string>("all");
   const [range, setRange] = useState<RevenueRange>("day");
-  const [customDate, setCustomDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const today = new Date().toISOString().slice(0, 10);
+  const [customFrom, setCustomFrom] = useState<string>(today);
+  const [customTo, setCustomTo] = useState<string>(today);
 
   useEffect(() => {
     let active = true;
     (async () => {
       const [ordersRes, branchesRes] = await Promise.all([
-        supabase.from("orders").select("id, order_number, subtotal_cents, fulfillment, created_at, branch_id, status").order("created_at", { ascending: false }),
+        supabase.from("orders").select("id, order_number, subtotal_cents, fulfillment, created_at, branch_id, status, workflow_status").order("created_at", { ascending: false }),
         supabase.from("branches").select("id, city").eq("is_active", true).order("sort_order"),
       ]);
       if (!active) return;
@@ -81,14 +85,18 @@ function RevenueOverviewPage() {
 
   const filteredOrders = useMemo(() => orders.filter((order) => {
     if (branchFilter !== "all" && order.branch_id !== branchFilter) return false;
-    return matchesRevenueRange(order.created_at, { type: range, customDate });
-  }), [branchFilter, orders, range, customDate]);
+    return matchesRevenueRange(order.created_at, { type: range, customFrom, customTo });
+  }), [branchFilter, orders, range, customFrom, customTo]);
 
-  const revenue = filteredOrders.filter((order) => order.status !== "cancelled").reduce((sum, order) => sum + order.subtotal_cents, 0);
-  const deliveryRevenue = filteredOrders.filter((order) => order.fulfillment === "delivery" && order.status !== "cancelled").reduce((sum, order) => sum + order.subtotal_cents, 0);
-  const pickupRevenue = filteredOrders.filter((order) => order.fulfillment === "pickup" && order.status !== "cancelled").reduce((sum, order) => sum + order.subtotal_cents, 0);
-  const deliveryCount = filteredOrders.filter((order) => order.fulfillment === "delivery" && order.status !== "cancelled").length;
-  const pickupCount = filteredOrders.filter((order) => order.status !== "cancelled").length - deliveryCount;
+  const collectedOrders = filteredOrders.filter((order) => order.fulfillment === "pickup"
+    ? order.status === "completed"
+    : ["handed_to_driver", "picked_up", "on_the_way", "out_for_delivery", "completed"].includes(order.status)
+      || ["picked_up", "out_for_delivery", "delivered"].includes(order.workflow_status));
+  const revenue = collectedOrders.reduce((sum, order) => sum + order.subtotal_cents, 0);
+  const deliveryRevenue = collectedOrders.filter((order) => order.fulfillment === "delivery").reduce((sum, order) => sum + order.subtotal_cents, 0);
+  const pickupRevenue = collectedOrders.filter((order) => order.fulfillment === "pickup").reduce((sum, order) => sum + order.subtotal_cents, 0);
+  const deliveryCount = collectedOrders.filter((order) => order.fulfillment === "delivery").length;
+  const pickupCount = collectedOrders.length - deliveryCount;
   const selectedBranchLabel = branchFilter === "all" ? "All branches" : branches.find((branch) => branch.id === branchFilter)?.city ?? "Selected branch";
   const branchLookup = new Map(branches.map((branch) => [branch.id, branch.city]));
 
@@ -124,10 +132,10 @@ function RevenueOverviewPage() {
               <button key={item.value} type="button" onClick={() => setRange(item.value)} className={"rounded-full px-3 py-1.5 text-xs font-semibold " + (range === item.value ? "bg-brand text-brand-foreground" : "border bg-background text-muted-foreground")}>{item.label}</button>
             ))}
             {range === "custom" && (
-              <label className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-                <span>Date</span>
-                <input type="date" value={customDate} onChange={(event) => setCustomDate(event.target.value)} className="rounded-full border bg-background px-2 py-1 text-xs" />
-              </label>
+              <div className="flex flex-wrap gap-2">
+                <label className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground"><span>From</span><input type="date" value={customFrom} max={customTo || undefined} onChange={(event) => setCustomFrom(event.target.value)} className="rounded-full border bg-background px-2 py-1 text-xs" /></label>
+                <label className="flex items-center gap-2 rounded-full border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground"><span>To</span><input type="date" value={customTo} min={customFrom || undefined} onChange={(event) => setCustomTo(event.target.value)} className="rounded-full border bg-background px-2 py-1 text-xs" /></label>
+              </div>
             )}
           </div>
         </section>
@@ -138,7 +146,7 @@ function RevenueOverviewPage() {
               <TrendingUp className="h-3.5 w-3.5" /> Sales revenue
             </div>
             <div className="mt-2 font-display text-3xl text-brand">{formatZAR(revenue)}</div>
-            <div className="mt-1 text-sm text-muted-foreground">{filteredOrders.filter((order) => order.status !== "cancelled").length} completed orders in this view</div>
+            <div className="mt-1 text-sm text-muted-foreground">{collectedOrders.length} collected orders in this view</div>
           </div>
           <div className="rounded-2xl border bg-card p-4">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -173,7 +181,7 @@ function RevenueOverviewPage() {
               <div className="text-right">Amount</div>
             </div>
             {filteredOrders.map((order) => (
-              <Link key={order.id} to={`/order/${order.order_number}`} className="grid grid-cols-[1.2fr_0.8fr_0.7fr_0.7fr_0.7fr] gap-2 border-t bg-background px-3 py-2 text-sm hover:bg-muted/50">
+              <Link key={order.id} to="/order/$number" params={{ number: order.order_number }} className="grid grid-cols-[1.2fr_0.8fr_0.7fr_0.7fr_0.7fr] gap-2 border-t bg-background px-3 py-2 text-sm hover:bg-muted/50">
                 <div className="min-w-0">
                   <div className="truncate font-semibold">#{order.order_number}</div>
                   <div className="text-xs text-muted-foreground">{new Date(order.created_at).toLocaleDateString()}</div>

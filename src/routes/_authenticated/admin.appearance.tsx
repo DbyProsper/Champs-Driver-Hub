@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Image, Paintbrush, Save } from "lucide-react";
+import { ArrowLeft, Image, Paintbrush, Save, Upload, Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { FALLBACK_MEDIA, FALLBACK_SETTINGS, imageSrcFor, type MediaAsset, type SiteSettings } from "@/lib/site-content";
@@ -11,13 +12,21 @@ export const Route = createFileRoute("/_authenticated/admin/appearance")({
   component: AppearanceAdmin,
 });
 
-const IMAGE_KEY_OPTIONS = ["girls-lunch", "chicken-hero", "chicken-chips", "chef", "couple", "champs-logo"];
+const IMAGE_KEY_OPTIONS = ["girls-lunch", "chicken-hero", "chicken-chips", "burger-card", "shakes-card", "chef", "couple", "champs-logo"];
+const CATEGORY_CARDS = [
+  { key: "chicken-hero", label: "Chicken", fallback: "chicken-hero" as const },
+  { key: "chicken-chips", label: "Combos", fallback: "chicken-chips" as const },
+  { key: "burger-card", label: "Burgers", fallback: "burger-card" as const },
+  { key: "shakes-card", label: "Shakes", fallback: "shakes-card" as const },
+];
 
 function AppearanceAdmin() {
+  const queryClient = useQueryClient();
   const [settings, setSettings] = useState<SiteSettings>(FALLBACK_SETTINGS);
   const [media, setMedia] = useState<MediaAsset[]>(FALLBACK_MEDIA);
   const [busy, setBusy] = useState(false);
   const [newAsset, setNewAsset] = useState({ title: "", image_key: "", src: "", alt: "", usage: "general" });
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
 
   async function load() {
     const [settingsResult, mediaResult] = await Promise.all([
@@ -38,6 +47,7 @@ function AppearanceAdmin() {
       const { error } = await supabase.from("site_settings").upsert(settings);
       if (error) throw error;
       toast.success("Appearance saved");
+      await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       void logAdminAction({ action_type: "site_settings_updated", action_description: "Updated site appearance settings", target_type: "site_settings", target_id: "main", metadata: { settings } });
       await load();
     } catch (err: any) {
@@ -50,7 +60,7 @@ function AppearanceAdmin() {
   async function saveAsset(asset: MediaAsset) {
     const { error } = await supabase.from("media_assets").update(asset).eq("id", asset.id);
     if (error) toast.error(error.message);
-    else { toast.success("Media updated"); void logAdminAction({ action_type: "media_asset_updated", action_description: `Updated media asset ${asset.title}`, target_type: "media_asset", target_id: asset.id, metadata: { asset } }); load(); }
+    else { toast.success("Media updated"); await queryClient.invalidateQueries({ queryKey: ["site-content"] }); void logAdminAction({ action_type: "media_asset_updated", action_description: `Updated media asset ${asset.title}`, target_type: "media_asset", target_id: asset.id, metadata: { asset } }); load(); }
   }
 
   async function createAsset() {
@@ -72,7 +82,32 @@ function AppearanceAdmin() {
       toast.success("Media added");
       void logAdminAction({ action_type: "media_asset_created", action_description: `Added media asset ${newAsset.title.trim()}`, target_type: "media_asset", metadata: { image_key: newAsset.image_key, src: newAsset.src } });
       setNewAsset({ title: "", image_key: "", src: "", alt: "", usage: "general" });
+      await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       load();
+    }
+  }
+
+  async function uploadCategoryImage(key: string, label: string, file: File) {
+    if (!file.type.startsWith("image/")) return toast.error("Choose an image file");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Image must be smaller than 5 MB");
+    setUploadingKey(key);
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = `homepage/${key}-${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("site-assets").upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
+      const existing = mediaMap.get(key);
+      const values = { title: `${label} homepage card`, image_key: key, src: data.publicUrl, alt: `${label} at Champs`, usage: "homepage-card", is_active: true, sort_order: existing?.sort_order ?? 40 };
+      const { error } = existing ? await supabase.from("media_assets").update(values).eq("id", existing.id) : await supabase.from("media_assets").insert(values);
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: ["site-content"] });
+      await load();
+      toast.success(`${label} image updated on the homepage`);
+    } catch (error: any) {
+      toast.error(error.message ?? "Could not upload image");
+    } finally {
+      setUploadingKey(null);
     }
   }
 
@@ -122,6 +157,14 @@ function AppearanceAdmin() {
               <Toggle label="Browse menu cards" checked={settings.show_categories} onChange={(value) => patchSettings({ show_categories: value })} />
               <Toggle label="Brand photo strip" checked={settings.show_brand_strip} onChange={(value) => patchSettings({ show_brand_strip: value })} />
               <Toggle label="Branch information" checked={settings.show_branch_info} onChange={(value) => patchSettings({ show_branch_info: value })} />
+            </div>
+          </section>
+
+          <section className="rounded-2xl border bg-card p-4">
+            <h2 className="font-display text-2xl text-brand">Browse the menu images</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Upload each homepage category image individually. The current live image is shown below.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {CATEGORY_CARDS.map((card) => <div key={card.key} className="rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={`${card.label} current image`} className="aspect-[4/3] w-full rounded-xl object-cover" /><div className="mt-2 flex items-center justify-between gap-2"><div><div className="font-semibold">{card.label}</div><div className="text-[10px] text-muted-foreground">Current homepage image</div></div><label className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground">{uploadingKey === card.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload<input type="file" accept="image/*" disabled={uploadingKey !== null} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, card.label, file); event.target.value = ""; }} /></label></div></div>)}
             </div>
           </section>
 

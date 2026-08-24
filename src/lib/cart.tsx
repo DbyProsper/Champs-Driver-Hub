@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 
 export type CartItem = {
   id: string; // menu_item id
+  menu_item_id?: string;
   name: string;
   variant?: string | null;
   unit_price_cents: number;

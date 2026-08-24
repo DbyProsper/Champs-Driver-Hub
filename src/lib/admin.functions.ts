@@ -3,11 +3,13 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-async function resolveAccessRole(context: { supabase: { rpc: (name: string) => Promise<{ data: unknown; error?: { message?: string } | null }> }; claims?: Record<string, unknown>; userId?: string | null }) {
+async function resolveAccessRole(context: { supabase: { rpc: (...args: any[]) => any }; claims?: Record<string, unknown>; userId?: string | null }) {
   const currentUserId = (context.userId as string | undefined | null) ?? (context.claims?.sub as string | undefined | null);
   const currentEmail = ((context.claims?.email as string | undefined | null) ?? "").toLowerCase();
-  const claimRole = typeof (context.claims?.role ?? context.claims?.app_metadata?.role ?? context.claims?.user_metadata?.role) === "string"
-    ? String(context.claims?.role ?? context.claims?.app_metadata?.role ?? context.claims?.user_metadata?.role).toLowerCase()
+  const appMetadata = (context.claims?.app_metadata ?? {}) as Record<string, unknown>;
+  const rawClaimRole = context.claims?.role ?? appMetadata.role;
+  const claimRole = typeof rawClaimRole === "string"
+    ? rawClaimRole.toLowerCase()
     : null;
   const adminEmails = ((import.meta.env.VITE_ADMIN_EMAILS as string | undefined) ?? "")
     .split(",")
@@ -59,16 +61,16 @@ async function logServerAdminAction(context: { userId?: string | null }, action:
 }
 
 async function getVisibleDriversForAdmin() {
-  let driverRows: Array<{ id: string; user_id: string | null; name: string; phone: string; status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; created_at: string; updated_at: string }> = [];
-  let applicationRows: Array<{ id: string; user_id: string; name: string; phone: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
+  let driverRows: Array<{ id: string; user_id: string | null; name: string; phone: string; status: string; profile_image_url: string | null; rating: number; rating_count: number; approval_status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; suspended_until: string | null; suspension_reason: string | null; created_at: string; updated_at: string }> = [];
+  let applicationRows: Array<{ id: string; user_id: string; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
 
   const [{ data: drivers, error: driversError }, { data: applications, error: applicationsError }] = await Promise.all([
     // include banking fields so admin UI can show full driver info
     supabaseAdmin
       .from("drivers")
-      .select("id,user_id,name,phone,status,branch_id,bank_name,bank_account_number,bank_account_holder,approval_status,created_at,updated_at")
+      .select("id,user_id,name,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,approval_status,suspended_until,suspension_reason,created_at,updated_at")
       .order("created_at", { ascending: false }),
-    supabaseAdmin.from("driver_applications").select("id,user_id,name,phone,branch_id,bank_name,bank_account_number,bank_account_holder,status,created_at,admin_notes").order("created_at", { ascending: false }),
+    supabaseAdmin.from("driver_applications").select("id,user_id,name,phone,branch_id,id_number,student_number,profile_photo_url,selfie_url,bank_name,bank_account_number,bank_account_holder,status,created_at,admin_notes").order("created_at", { ascending: false }),
   ]);
 
   if (driversError) {
@@ -105,7 +107,9 @@ async function getVisibleDriversForAdmin() {
 
   const enrichedDrivers = driverRows.map((driver) => ({
     ...driver,
-    approval_status: roleMap.get(driver.user_id ?? "")?.includes("driver") ? "approved" : driver.status,
+    approval_status: driver.approval_status === "suspended" && driver.suspended_until && new Date(driver.suspended_until).getTime() > Date.now()
+      ? "suspended"
+      : roleMap.get(driver.user_id ?? "")?.includes("driver") ? "approved" : driver.approval_status,
     roles: roleMap.get(driver.user_id ?? "") ?? [],
   }));
 
@@ -114,7 +118,7 @@ async function getVisibleDriversForAdmin() {
 
 export const listDriversForAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({}).parse(input))
+  .validator((input: unknown) => z.object({}).parse(input))
   .handler(async ({ context }) => {
     const accessRole = await resolveAccessRole(context);
     const isStaff = accessRole === "admin" || accessRole === "staff";
@@ -131,7 +135,7 @@ export const listDriversForAdmin = createServerFn({ method: "POST" })
 
 export const getDriverProfileForCurrentUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({}).parse(input))
+  .validator((input: unknown) => z.object({}).parse(input))
   .handler(async ({ context }) => {
     const uid = (context.userId as string | undefined | null) ?? (context.claims?.sub as string | undefined | null);
     if (!uid) return { ok: false, driver: null };
@@ -139,17 +143,23 @@ export const getDriverProfileForCurrentUser = createServerFn({ method: "POST" })
     const [{ data: driver }, { data: roleData }] = await Promise.all([
       supabaseAdmin
         .from("drivers")
-        .select("id,name,phone,status,branch_id,bank_name,bank_account_number,bank_account_holder,user_id")
+        .select("id,name,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,user_id,approval_status,suspended_until,suspension_reason")
         .eq("user_id", uid)
         .maybeSingle(),
       supabaseAdmin.from("user_roles").select("role").eq("user_id", uid),
     ]);
 
     const roleNames = (roleData ?? []).map((row: { role?: string }) => row.role).filter(Boolean) as string[];
+    if (driver?.approval_status === "suspended" && driver.suspended_until && new Date(driver.suspended_until).getTime() <= Date.now()) {
+      await supabaseAdmin.from("drivers").update({ approval_status: "approved", suspended_at: null, suspended_until: null, suspension_reason: null } as never).eq("id", driver.id);
+      driver.approval_status = "approved";
+      driver.suspended_until = null;
+      driver.suspension_reason = null;
+    }
     const resolvedDriver = driver
       ? {
           ...driver,
-          approval_status: roleNames.includes("driver") ? "approved" : driver.status,
+          approval_status: driver.approval_status === "suspended" ? "suspended" : roleNames.includes("driver") ? "approved" : driver.status,
           roles: roleNames,
         }
       : null;
@@ -159,7 +169,7 @@ export const getDriverProfileForCurrentUser = createServerFn({ method: "POST" })
 
 export const grantRoleByEmail = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({
+  .validator((input: unknown) => z.object({
     email: z.string().email().transform((value) => value.trim().toLowerCase()),
     role: z.enum(["admin", "staff", "user", "driver"]),
   }).parse(input))
@@ -199,7 +209,7 @@ export const grantRoleByEmail = createServerFn({ method: "POST" })
 
 export const adminUpsertDriverByEmail = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({
+  .validator((input: unknown) => z.object({
     email: z.string().email().transform((value) => value.trim().toLowerCase()),
     name: z.string().trim().min(1),
     phone: z.string().trim().min(1),
@@ -237,7 +247,7 @@ export const adminUpsertDriverByEmail = createServerFn({ method: "POST" })
 
 export const requestDriverApplication = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({
+  .validator((input: unknown) => z.object({
     name: z.string().trim().min(1),
     phone: z.string().trim().min(1),
     idNumber: z.string().trim().min(1).nullable().optional(),
@@ -269,7 +279,7 @@ export const requestDriverApplication = createServerFn({ method: "POST" })
 
 export const approveDriverApplication = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ applicationId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ applicationId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const accessRole = await resolveAccessRole(context);
     if (accessRole !== "admin") {
@@ -289,7 +299,7 @@ export const approveDriverApplication = createServerFn({ method: "POST" })
 
 export const rejectDriverApplication = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ applicationId: z.string().uuid(), notes: z.string().trim().optional() }).parse(input))
+  .validator((input: unknown) => z.object({ applicationId: z.string().uuid(), notes: z.string().trim().optional() }).parse(input))
   .handler(async ({ data, context }) => {
     const accessRole = await resolveAccessRole(context);
     if (accessRole !== "admin") {
@@ -310,7 +320,7 @@ export const rejectDriverApplication = createServerFn({ method: "POST" })
 
 export const submitDeliveryPayment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ deliveryId: z.string().uuid(), reference: z.string().trim().min(1), proofPath: z.string().trim().nullable().optional() }).parse(input))
+  .validator((input: unknown) => z.object({ deliveryId: z.string().uuid(), reference: z.string().trim().min(1), proofPath: z.string().trim().nullable().optional() }).parse(input))
   .handler(async ({ data, context }) => {
     const { data: resultData, error } = await context.supabase.rpc("submit_delivery_payment", {
       _delivery_id: data.deliveryId,
@@ -324,7 +334,7 @@ export const submitDeliveryPayment = createServerFn({ method: "POST" })
 
 export const confirmDeliveryPayment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ deliveryId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => z.object({ deliveryId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const { data: resultData, error } = await context.supabase.rpc("confirm_delivery_payment", { _delivery_id: data.deliveryId });
     if (error) throw error;

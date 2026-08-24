@@ -1,24 +1,26 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, MessageCircle, Bell, ShieldCheck, Landmark, Upload, Copy } from "lucide-react";
+import { CheckCircle2, MessageCircle, Bell, ShieldCheck, Landmark, Upload, Copy, Phone, Star, Flag } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { fireNotification, notificationPermission, requestNotificationPermission, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
 import { waLink, orderStatusMessage } from "@/lib/whatsapp";
-import { PAYMENT_STATUS_LABEL, resolveOrderDisplayStatus, triggerAutoAssign } from "@/lib/delivery";
+import { PAYMENT_STATUS_LABEL, resolveOrderDisplayStatus } from "@/lib/delivery";
 import { toast } from "sonner";
 import { submitDeliveryPayment } from "@/lib/admin.functions";
+import { ChatDialog } from "@/components/ChatDialog";
+import { ImagePreview } from "@/components/ImagePreview";
 
 const orderQuery = (number: string) =>
   queryOptions({
     queryKey: ["order", number],
     queryFn: async () => {
-      const { data: order, error } = await supabase
+      const { data: order, error } = await (supabase as any)
         .from("orders")
-        .select("id, order_number, customer_name, customer_phone, fulfillment, delivery_notes, subtotal_cents, delivery_fee_cents, status, created_at, pickup_pin, branch_id, verified_at, user_id, driver_id")
+        .select("id, order_number, customer_name, customer_phone, fulfillment, delivery_notes, subtotal_cents, delivery_fee_cents, status, created_at, pickup_pin, branch_id, verified_at, user_id, driver_id, workflow_status")
         .eq("order_number", number)
         .maybeSingle();
       if (error) throw error;
@@ -35,13 +37,13 @@ const orderQuery = (number: string) =>
               .maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
-      let driver: { name: string; phone: string; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null } | null = null;
+      let driver: { name: string; phone: string; profile_image_url: string | null; rating: number; rating_count: number; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null } | null = null;
       let aheadCount = 0;
       const d: any = delivery;
       const driverId = d?.driver_id ?? order?.driver_id ?? null;
       if (driverId) {
         const { data: dr } = await (supabase.from("drivers") as any)
-          .select("name, phone, bank_name, bank_account_number, bank_account_holder")
+          .select("name, phone, profile_image_url, rating, rating_count, bank_name, bank_account_number, bank_account_holder")
           .eq("id", driverId)
           .maybeSingle();
         driver = dr;
@@ -95,6 +97,13 @@ function OrderPage() {
   const [payRef, setPayRef] = useState("");
   const [proofUploading, setProofUploading] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
+  const [rating, setRating] = useState(5);
+  const [ratingComment, setRatingComment] = useState("");
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportDetails, setReportDetails] = useState("");
 
   useEffect(() => { void requestNotificationPermissionIfNeeded(); }, []);
 
@@ -136,17 +145,16 @@ function OrderPage() {
     return () => { supabase.removeChannel(ch); };
   }, [data?.order.id, data?.order.order_number, refetch, STATUS_LABEL]);
 
-  // If delivery and still awaiting driver, poll auto-assign every 10s
   useEffect(() => {
-    if (!isDelivery) return;
-    const d: any = data?.delivery;
-    if (!d || d.driver_id) return;
-    const t = window.setInterval(async () => {
-      await triggerAutoAssign();
-      refetch();
-    }, 10_000);
-    return () => window.clearInterval(t);
-  }, [isDelivery, data?.delivery, refetch]);
+    const delivered = isDelivery && data?.order && (data.order.workflow_status === "delivered" || visibleStatus === "completed");
+    if (!delivered || !data?.order.id || ratingSubmitted) return;
+    let active = true;
+    void (async () => {
+      const { data: existing } = await (supabase as any).from("driver_ratings").select("id").eq("order_id", data.order.id).maybeSingle();
+      if (active && !existing) setRatingOpen(true);
+    })();
+    return () => { active = false; };
+  }, [isDelivery, data?.order?.id, data?.order?.workflow_status, visibleStatus, ratingSubmitted]);
 
   async function enableNotifications() {
     const p = await requestNotificationPermission();
@@ -191,12 +199,39 @@ function OrderPage() {
     try { navigator.clipboard.writeText(text); toast.success("Copied"); } catch {}
   }
 
+  async function submitRating() {
+    if (!data?.order.driver_id || !data.order.user_id) return toast.error("A signed-in delivered order is required");
+    if (rating < 3 && ratingComment.trim().length < 5) return toast.error("Please tell us what went wrong for ratings below 3 stars");
+    const { data: user } = await supabase.auth.getUser();
+    if (user.user?.id !== data.order.user_id) return toast.error("Sign in with the account that placed this order");
+    const customerId = user.user?.id;
+    if (!customerId) return;
+    const { error } = await (supabase as any).from("driver_ratings").upsert({ order_id: data.order.id, driver_id: data.order.driver_id, customer_id: customerId, rating, comment: ratingComment.trim() || null }, { onConflict: "order_id" });
+    if (error) return toast.error(error.message);
+    setRatingSubmitted(true);
+    setRatingOpen(false);
+    toast.success("Thank you for rating your driver");
+  }
+
+  async function submitReport() {
+    if (!data?.order.driver_id || !data.order.user_id) return;
+    const { data: user } = await supabase.auth.getUser();
+    if (user.user?.id !== data.order.user_id) return toast.error("Sign in with the account that placed this order");
+    const customerId = user.user?.id;
+    if (!customerId) return;
+    const { error } = await (supabase as any).from("driver_reports").insert({ order_id: data.order.id, driver_id: data.order.driver_id, customer_id: customerId, reason: reportReason.trim(), details: reportDetails.trim() });
+    if (error) return toast.error(error.message);
+    setReportOpen(false); toast.success("Report sent to Champs for review");
+  }
+
   if (!data) return <div className="p-6 text-sm">Order not found.</div>;
   const { order, items, branch, delivery, driver, aheadCount } = data;
   const currentIdx = (STATUS_STEPS as readonly string[]).indexOf(visibleStatus);
   const waText = orderStatusMessage(order.order_number, visibleStatus, order.customer_name);
   const verifyPayload = `champs:${order.order_number}:${order.pickup_pin}`;
   const d: any = delivery;
+  const fullTotalCents = order.subtotal_cents + (order.delivery_fee_cents ?? d?.delivery_fee_cents ?? 0);
+  const ratingLabels: Record<number, string> = { 5: "Excellent and fast service", 4: "Good", 3: "Moderate", 2: "Fair reliability", 1: "Poor" };
 
   return (
     <div className="min-h-screen pb-10">
@@ -248,16 +283,25 @@ function OrderPage() {
         {isDelivery && effectiveDriverId && (
           <div className="mt-4 rounded-2xl border-2 border-brand/30 bg-card p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-3">
+                {driver?.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.name} profile picture`} className="h-12 w-12 rounded-full object-cover" /> : null}
+                <div>
                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Your driver</div>
                 <div className="font-display text-lg text-brand">{driver?.name ?? "Driver assigned"}</div>
+                {driver && <div className="text-[11px] text-muted-foreground">★ {Number(driver.rating ?? 0).toFixed(1)} · {driver.rating_count ?? 0} reviews</div>}
                 {driver?.phone ? (
                   <a href={`tel:${driver.phone}`} className="text-xs text-muted-foreground underline">{driver.phone}</a>
                 ) : (
                   <div className="text-xs text-muted-foreground">Driver details will appear here as soon as they are available.</div>
                 )}
+                </div>
               </div>
               <span className="rounded-full bg-brand/10 px-2 py-1 text-[10px] font-bold uppercase text-brand">{d?.status ?? "assigned"}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <ChatDialog orderId={order.id} label="Chat" className="inline-flex items-center justify-center gap-1 rounded-xl bg-brand px-2 py-2.5 text-xs font-bold text-brand-foreground" />
+              {driver?.phone && <a href={`https://wa.me/${driver.phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi, please confirm Champs order ${order.order_number}. The full amount (food + delivery) is ${formatZAR(fullTotalCents)}.`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#25D366] px-2 py-2.5 text-xs font-bold text-white"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</a>}
+              {driver?.phone && <a href={`tel:${driver.phone}`} className="inline-flex items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-bold"><Phone className="h-3.5 w-3.5" /> Call</a>}
             </div>
             {(driver?.bank_name || driver?.bank_account_number) && (
               <div className="rounded-xl bg-muted/40 p-3 text-sm">
@@ -266,7 +310,7 @@ function OrderPage() {
                   {driver.bank_account_holder && <Row label="Account holder" value={driver.bank_account_holder} onCopy={() => copyText(driver.bank_account_holder!)} />}
                   {driver.bank_name && <Row label="Bank" value={driver.bank_name} onCopy={() => copyText(driver.bank_name!)} />}
                   {driver.bank_account_number && <Row label="Account number" value={driver.bank_account_number} onCopy={() => copyText(driver.bank_account_number!)} />}
-                  <Row label="Amount" value={formatZAR(d?.delivery_fee_cents ?? order.delivery_fee_cents ?? 0)} onCopy={() => copyText(String((d?.delivery_fee_cents ?? order.delivery_fee_cents ?? 0) / 100))} />
+                  <Row label="Full amount" value={formatZAR(fullTotalCents)} onCopy={() => copyText(String(fullTotalCents / 100))} />
                   <Row label="Reference" value={`${order.order_number} ${order.customer_name}`} onCopy={() => copyText(`${order.order_number} ${order.customer_name}`)} />
                 </div>
                 <div className="mt-3 rounded-lg bg-background border p-2 text-[11px] text-muted-foreground">Use your order number as the reference so the driver can match your payment.</div>
@@ -294,6 +338,16 @@ function OrderPage() {
                 )}
                 <div className="mt-2 text-[11px] text-muted-foreground">Payment status: <span className="font-semibold text-foreground">{PAYMENT_STATUS_LABEL[d?.payment_status ?? "not_paid"]}</span></div>
               </div>
+            )}
+          </div>
+        )}
+
+        {ratingOpen && <div className="fixed inset-0 z-[85] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true"><div className="w-full max-w-sm rounded-3xl border bg-background p-5 shadow-2xl"><div className="font-display text-2xl text-brand">Rate your driver</div><div className="mt-3 flex gap-1">{[1,2,3,4,5].map((value) => <button type="button" key={value} onClick={() => setRating(value)} aria-label={`${value} stars`}><Star className={`h-8 w-8 ${value <= rating ? "fill-amber-400 text-amber-400" : "text-muted"}`} /></button>)}</div><div className="mt-2 text-sm font-semibold">{ratingLabels[rating]}</div><textarea value={ratingComment} onChange={(event) => setRatingComment(event.target.value)} maxLength={1000} rows={3} placeholder={rating < 3 ? "Tell us what went wrong (required)" : "Add a comment (optional)"} className="mt-3 w-full rounded-xl border bg-background px-3 py-2 text-sm" /><button type="button" onClick={submitRating} className="mt-3 w-full rounded-full bg-brand px-4 py-3 text-sm font-bold text-brand-foreground">Submit rating</button></div></div>}
+
+        {isDelivery && effectiveDriverId && (
+          <div className="mt-3">
+            {!reportOpen ? <button type="button" onClick={() => setReportOpen(true)} className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground"><Flag className="h-3.5 w-3.5" /> Report this driver</button> : (
+              <div className="rounded-2xl border border-destructive/30 bg-card p-4 space-y-2"><input value={reportReason} onChange={(event) => setReportReason(event.target.value)} placeholder="Reason" className="w-full rounded-xl border px-3 py-2 text-sm" /><textarea value={reportDetails} onChange={(event) => setReportDetails(event.target.value)} placeholder="Tell Champs what happened" rows={3} className="w-full rounded-xl border px-3 py-2 text-sm" /><div className="flex gap-2"><button type="button" disabled={reportReason.trim().length < 3 || reportDetails.trim().length < 5} onClick={submitReport} className="rounded-full bg-destructive px-4 py-2 text-xs font-bold text-destructive-foreground disabled:opacity-50">Send report</button><button type="button" onClick={() => setReportOpen(false)} className="rounded-full border px-4 py-2 text-xs">Cancel</button></div></div>
             )}
           </div>
         )}
@@ -358,8 +412,13 @@ function OrderPage() {
             </div>
           ))}
           <div className="mt-3 flex justify-between border-t border-border pt-3">
-            <span className="font-bold">Total</span>
-            <span className="font-display text-xl text-brand">{formatZAR(order.subtotal_cents)}</span>
+            <span className="font-bold">Food total</span>
+            <span className="tabular-nums">{formatZAR(order.subtotal_cents)}</span>
+          </div>
+          {isDelivery && <div className="flex justify-between"><span>Delivery fee</span><span>{formatZAR(order.delivery_fee_cents ?? 0)}</span></div>}
+          <div className="mt-2 flex justify-between border-t border-border pt-3">
+            <span className="font-bold">Full total</span>
+            <span className="font-display text-xl text-brand">{formatZAR(fullTotalCents)}</span>
           </div>
         </div>
 
@@ -379,4 +438,3 @@ function Row({ label, value, onCopy }: { label: string; value: string; onCopy: (
     </div>
   );
 }
-

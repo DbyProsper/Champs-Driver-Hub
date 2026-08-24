@@ -9,7 +9,7 @@ export const myOrdersQuery = (userId: string | null) =>
       if (!userId) return [];
       const { data: orders, error } = await supabase
         .from("orders")
-        .select("id, order_number, status, subtotal_cents, fulfillment, created_at, branch_id")
+        .select("id, order_number, status, subtotal_cents, delivery_fee_cents, fulfillment, created_at, branch_id, driver_id")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(30);

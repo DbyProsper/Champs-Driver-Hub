@@ -35,7 +35,7 @@ function DeliverySettingsPage() {
       <input
         type="number"
         step={step as number}
-        value={s[key]}
+        value={typeof s[key] === "number" ? s[key] : 0}
         onChange={(e) => setS({ ...s, [key]: Number(e.target.value) })}
         className="w-full rounded-xl border border-input bg-card px-4 py-3 text-sm"
       />
@@ -55,6 +55,13 @@ function DeliverySettingsPage() {
         </div>
       </header>
       <div className="mx-auto max-w-3xl px-4 py-4 space-y-4">
+        <section className="rounded-2xl border bg-card p-4 space-y-3">
+          <h2 className="font-display text-lg text-brand">Delivery options</h2>
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={s.delivery_enabled} onChange={(e) => setS({ ...s, delivery_enabled: e.target.checked })} /><span><span className="font-semibold">Delivery enabled</span><span className="block text-xs text-muted-foreground">Allow customers to choose delivery.</span></span></label>
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={s.drivers_dial_up_only} onChange={(e) => setS({ ...s, drivers_dial_up_only: e.target.checked })} /><span><span className="font-semibold">Drivers dial up only</span><span className="block text-xs text-muted-foreground">Customers use pickup while drivers manage delivery orders.</span></span></label>
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={s.pickup_enabled} onChange={(e) => setS({ ...s, pickup_enabled: e.target.checked })} /><span><span className="font-semibold">Pickup enabled</span><span className="block text-xs text-muted-foreground">Allow customers to place collection orders.</span></span></label>
+          <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={Boolean(s.manual_peak_mode)} onChange={(e) => setS({ ...s, manual_peak_mode: e.target.checked })} /><span><span className="font-semibold">Force peak mode</span><span className="block text-xs text-muted-foreground">Otherwise peak mode switches on automatically at the demand threshold below.</span></span></label>
+        </section>
         <section className="rounded-2xl border bg-card p-4">
           <h2 className="font-display text-lg text-brand mb-3">Radius</h2>
           {field("Max delivery radius (km)", "max_radius_km")}
@@ -75,6 +82,7 @@ function DeliverySettingsPage() {
 
         <section className="rounded-2xl border bg-card p-4 space-y-3">
           <h2 className="font-display text-lg text-brand">ETA engine</h2>
+          <label className="block"><div className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">When base preparation time is reached</div><select value={s.auto_ready_mode} onChange={(event) => setS({ ...s, auto_ready_mode: event.target.value as DeliverySettings["auto_ready_mode"] })} className="w-full rounded-xl border bg-card px-4 py-3 text-sm"><option value="prompt">Prompt kitchen staff to mark ready</option><option value="automatic">Automatically mark the order ready</option></select></label>
           <div className="grid grid-cols-2 gap-3">
             {field("Base prep time (min)", "base_prep_min", 1, "Kitchen prep time before dispatch.")}
             {field("Avg stop time (min)", "avg_stop_min", 1, "Time per additional stop in a batch.")}

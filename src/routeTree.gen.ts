@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TrackRouteImport } from './routes/track'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as MenuRouteImport } from './routes/menu'
 import { Route as CheckoutRouteImport } from './routes/checkout'
@@ -22,17 +23,25 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrderNumberRouteImport } from './routes/order.$number'
 import { Route as AuthenticatedDriverRouteImport } from './routes/_authenticated/driver'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedAdminSecurityRouteImport } from './routes/_authenticated/admin.security'
 import { Route as AuthenticatedAdminRevenueRouteImport } from './routes/_authenticated/admin.revenue'
 import { Route as AuthenticatedAdminPromotionsRouteImport } from './routes/_authenticated/admin.promotions'
+import { Route as AuthenticatedAdminMessagesRouteImport } from './routes/_authenticated/admin.messages'
 import { Route as AuthenticatedAdminMenuRouteImport } from './routes/_authenticated/admin.menu'
 import { Route as AuthenticatedAdminDeliverySettingsRouteImport } from './routes/_authenticated/admin.delivery-settings'
 import { Route as AuthenticatedAdminDeliveriesRouteImport } from './routes/_authenticated/admin.deliveries'
+import { Route as AuthenticatedAdminComplaintsRouteImport } from './routes/_authenticated/admin.complaints'
 import { Route as AuthenticatedAdminAuditTrailRouteImport } from './routes/_authenticated/admin.audit-trail'
 import { Route as AuthenticatedAdminAppearanceRouteImport } from './routes/_authenticated/admin.appearance'
 
 const TrackRoute = TrackRouteImport.update({
   id: '/track',
   path: '/track',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -94,6 +103,12 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminSecurityRoute =
+  AuthenticatedAdminSecurityRouteImport.update({
+    id: '/security',
+    path: '/security',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminRevenueRoute =
   AuthenticatedAdminRevenueRouteImport.update({
     id: '/revenue',
@@ -104,6 +119,12 @@ const AuthenticatedAdminPromotionsRoute =
   AuthenticatedAdminPromotionsRouteImport.update({
     id: '/promotions',
     path: '/promotions',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminMessagesRoute =
+  AuthenticatedAdminMessagesRouteImport.update({
+    id: '/messages',
+    path: '/messages',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminMenuRoute = AuthenticatedAdminMenuRouteImport.update({
@@ -121,6 +142,12 @@ const AuthenticatedAdminDeliveriesRoute =
   AuthenticatedAdminDeliveriesRouteImport.update({
     id: '/deliveries',
     path: '/deliveries',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminComplaintsRoute =
+  AuthenticatedAdminComplaintsRouteImport.update({
+    id: '/complaints',
+    path: '/complaints',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminAuditTrailRoute =
@@ -145,17 +172,21 @@ export interface FileRoutesByFullPath {
   '/checkout': typeof CheckoutRoute
   '/menu': typeof MenuRoute
   '/privacy': typeof PrivacyRoute
+  '/profile': typeof ProfileRoute
   '/track': typeof TrackRoute
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
   '/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
+  '/admin/complaints': typeof AuthenticatedAdminComplaintsRoute
   '/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/admin/menu': typeof AuthenticatedAdminMenuRoute
+  '/admin/messages': typeof AuthenticatedAdminMessagesRoute
   '/admin/promotions': typeof AuthenticatedAdminPromotionsRoute
   '/admin/revenue': typeof AuthenticatedAdminRevenueRoute
+  '/admin/security': typeof AuthenticatedAdminSecurityRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -166,17 +197,21 @@ export interface FileRoutesByTo {
   '/checkout': typeof CheckoutRoute
   '/menu': typeof MenuRoute
   '/privacy': typeof PrivacyRoute
+  '/profile': typeof ProfileRoute
   '/track': typeof TrackRoute
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
   '/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
+  '/admin/complaints': typeof AuthenticatedAdminComplaintsRoute
   '/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/admin/menu': typeof AuthenticatedAdminMenuRoute
+  '/admin/messages': typeof AuthenticatedAdminMessagesRoute
   '/admin/promotions': typeof AuthenticatedAdminPromotionsRoute
   '/admin/revenue': typeof AuthenticatedAdminRevenueRoute
+  '/admin/security': typeof AuthenticatedAdminSecurityRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -189,17 +224,21 @@ export interface FileRoutesById {
   '/checkout': typeof CheckoutRoute
   '/menu': typeof MenuRoute
   '/privacy': typeof PrivacyRoute
+  '/profile': typeof ProfileRoute
   '/track': typeof TrackRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/driver': typeof AuthenticatedDriverRoute
   '/order/$number': typeof OrderNumberRoute
   '/_authenticated/admin/appearance': typeof AuthenticatedAdminAppearanceRoute
   '/_authenticated/admin/audit-trail': typeof AuthenticatedAdminAuditTrailRoute
+  '/_authenticated/admin/complaints': typeof AuthenticatedAdminComplaintsRoute
   '/_authenticated/admin/deliveries': typeof AuthenticatedAdminDeliveriesRoute
   '/_authenticated/admin/delivery-settings': typeof AuthenticatedAdminDeliverySettingsRoute
   '/_authenticated/admin/menu': typeof AuthenticatedAdminMenuRoute
+  '/_authenticated/admin/messages': typeof AuthenticatedAdminMessagesRoute
   '/_authenticated/admin/promotions': typeof AuthenticatedAdminPromotionsRoute
   '/_authenticated/admin/revenue': typeof AuthenticatedAdminRevenueRoute
+  '/_authenticated/admin/security': typeof AuthenticatedAdminSecurityRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -212,17 +251,21 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/menu'
     | '/privacy'
+    | '/profile'
     | '/track'
     | '/admin'
     | '/driver'
     | '/order/$number'
     | '/admin/appearance'
     | '/admin/audit-trail'
+    | '/admin/complaints'
     | '/admin/deliveries'
     | '/admin/delivery-settings'
     | '/admin/menu'
+    | '/admin/messages'
     | '/admin/promotions'
     | '/admin/revenue'
+    | '/admin/security'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -233,17 +276,21 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/menu'
     | '/privacy'
+    | '/profile'
     | '/track'
     | '/admin'
     | '/driver'
     | '/order/$number'
     | '/admin/appearance'
     | '/admin/audit-trail'
+    | '/admin/complaints'
     | '/admin/deliveries'
     | '/admin/delivery-settings'
     | '/admin/menu'
+    | '/admin/messages'
     | '/admin/promotions'
     | '/admin/revenue'
+    | '/admin/security'
   id:
     | '__root__'
     | '/'
@@ -255,17 +302,21 @@ export interface FileRouteTypes {
     | '/checkout'
     | '/menu'
     | '/privacy'
+    | '/profile'
     | '/track'
     | '/_authenticated/admin'
     | '/_authenticated/driver'
     | '/order/$number'
     | '/_authenticated/admin/appearance'
     | '/_authenticated/admin/audit-trail'
+    | '/_authenticated/admin/complaints'
     | '/_authenticated/admin/deliveries'
     | '/_authenticated/admin/delivery-settings'
     | '/_authenticated/admin/menu'
+    | '/_authenticated/admin/messages'
     | '/_authenticated/admin/promotions'
     | '/_authenticated/admin/revenue'
+    | '/_authenticated/admin/security'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -278,6 +329,7 @@ export interface RootRouteChildren {
   CheckoutRoute: typeof CheckoutRoute
   MenuRoute: typeof MenuRoute
   PrivacyRoute: typeof PrivacyRoute
+  ProfileRoute: typeof ProfileRoute
   TrackRoute: typeof TrackRoute
   OrderNumberRoute: typeof OrderNumberRoute
 }
@@ -289,6 +341,13 @@ declare module '@tanstack/react-router' {
       path: '/track'
       fullPath: '/track'
       preLoaderRoute: typeof TrackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -375,6 +434,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/security': {
+      id: '/_authenticated/admin/security'
+      path: '/security'
+      fullPath: '/admin/security'
+      preLoaderRoute: typeof AuthenticatedAdminSecurityRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/revenue': {
       id: '/_authenticated/admin/revenue'
       path: '/revenue'
@@ -387,6 +453,13 @@ declare module '@tanstack/react-router' {
       path: '/promotions'
       fullPath: '/admin/promotions'
       preLoaderRoute: typeof AuthenticatedAdminPromotionsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/messages': {
+      id: '/_authenticated/admin/messages'
+      path: '/messages'
+      fullPath: '/admin/messages'
+      preLoaderRoute: typeof AuthenticatedAdminMessagesRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/admin/menu': {
@@ -410,6 +483,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminDeliveriesRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/admin/complaints': {
+      id: '/_authenticated/admin/complaints'
+      path: '/complaints'
+      fullPath: '/admin/complaints'
+      preLoaderRoute: typeof AuthenticatedAdminComplaintsRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/audit-trail': {
       id: '/_authenticated/admin/audit-trail'
       path: '/audit-trail'
@@ -430,22 +510,28 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminAppearanceRoute: typeof AuthenticatedAdminAppearanceRoute
   AuthenticatedAdminAuditTrailRoute: typeof AuthenticatedAdminAuditTrailRoute
+  AuthenticatedAdminComplaintsRoute: typeof AuthenticatedAdminComplaintsRoute
   AuthenticatedAdminDeliveriesRoute: typeof AuthenticatedAdminDeliveriesRoute
   AuthenticatedAdminDeliverySettingsRoute: typeof AuthenticatedAdminDeliverySettingsRoute
   AuthenticatedAdminMenuRoute: typeof AuthenticatedAdminMenuRoute
+  AuthenticatedAdminMessagesRoute: typeof AuthenticatedAdminMessagesRoute
   AuthenticatedAdminPromotionsRoute: typeof AuthenticatedAdminPromotionsRoute
   AuthenticatedAdminRevenueRoute: typeof AuthenticatedAdminRevenueRoute
+  AuthenticatedAdminSecurityRoute: typeof AuthenticatedAdminSecurityRoute
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminAppearanceRoute: AuthenticatedAdminAppearanceRoute,
   AuthenticatedAdminAuditTrailRoute: AuthenticatedAdminAuditTrailRoute,
+  AuthenticatedAdminComplaintsRoute: AuthenticatedAdminComplaintsRoute,
   AuthenticatedAdminDeliveriesRoute: AuthenticatedAdminDeliveriesRoute,
   AuthenticatedAdminDeliverySettingsRoute:
     AuthenticatedAdminDeliverySettingsRoute,
   AuthenticatedAdminMenuRoute: AuthenticatedAdminMenuRoute,
+  AuthenticatedAdminMessagesRoute: AuthenticatedAdminMessagesRoute,
   AuthenticatedAdminPromotionsRoute: AuthenticatedAdminPromotionsRoute,
   AuthenticatedAdminRevenueRoute: AuthenticatedAdminRevenueRoute,
+  AuthenticatedAdminSecurityRoute: AuthenticatedAdminSecurityRoute,
 }
 
 const AuthenticatedAdminRouteWithChildren =
@@ -474,6 +560,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckoutRoute: CheckoutRoute,
   MenuRoute: MenuRoute,
   PrivacyRoute: PrivacyRoute,
+  ProfileRoute: ProfileRoute,
   TrackRoute: TrackRoute,
   OrderNumberRoute: OrderNumberRoute,
 }

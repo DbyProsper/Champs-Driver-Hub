@@ -7,7 +7,7 @@ export const Route = createFileRoute("/privacy")({
   component: PrivacyPage,
 });
 
-export default function PrivacyPage() {
+function PrivacyPage() {
   return (
     <div className="min-h-screen pb-24">
       <Header subtitle="Privacy Policy" />

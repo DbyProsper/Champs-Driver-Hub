@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp } from "lucide-react";
+import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp, Printer, Flag, LockKeyhole, Menu as MenuIcon, X } from "lucide-react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
@@ -12,6 +12,10 @@ import { getAccessRole } from "@/lib/roles";
 import { grantRoleByEmail } from "@/lib/admin.functions";
 import { getDeliveryStatusForOrderStatus, resolveOrderDisplayStatus } from "@/lib/delivery";
 import { logAdminAction } from "@/lib/audit";
+import { NotificationCenter } from "@/components/NotificationCenter";
+import { ChatDialog } from "@/components/ChatDialog";
+import { printOrderReceipt } from "@/lib/receipt";
+import { sendOrderEventEmail } from "@/lib/order-email";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -29,11 +33,14 @@ type Order = {
   subtotal_cents: number;
   status: "pending" | "preparing" | "ready" | "handed_to_driver" | "picked_up" | "on_the_way" | "out_for_delivery" | "completed" | "cancelled";
   created_at: string;
+  updated_at: string;
   branch_id: string;
   pickup_pin: string;
   verified_at: string | null;
+  workflow_status?: string;
 };
 type ItemRow = { order_id: string; item_name: string; quantity: number; unit_price_cents: number };
+type DriverReport = { id: string; order_id: string; driver_id: string; reason: string; details: string; status: string; created_at: string };
 
 const PICKUP_STATUS_FLOW: Order["status"][] = ["pending", "preparing", "ready", "completed"];
 const DELIVERY_STATUS_FLOW: Order["status"][] = ["pending", "preparing", "ready", "handed_to_driver"];
@@ -43,7 +50,9 @@ const STATUS_META = {
   ready: { label: "Ready", icon: Package, color: "bg-emerald-500" },
   handed_to_driver: { label: "Handed to driver", icon: Bike, color: "bg-indigo-500" },
   out_for_delivery: { label: "Out for delivery", icon: Bike, color: "bg-purple-500" },
-  completed: { label: "Delivered", icon: CheckCircle2, color: "bg-green-600" },
+  picked_up: { label: "Picked up", icon: Bike, color: "bg-indigo-500" },
+  on_the_way: { label: "Out for delivery", icon: Bike, color: "bg-purple-500" },
+  completed: { label: "Completed", icon: CheckCircle2, color: "bg-green-600" },
   cancelled: { label: "Cancelled", icon: XCircle, color: "bg-neutral-500" },
 } as const;
 
@@ -67,24 +76,38 @@ function Admin() {
   const [grantRole, setGrantRole] = useState<"admin" | "staff">("admin");
   const [grantBusy, setGrantBusy] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [deliveryStatuses, setDeliveryStatuses] = useState<Record<string, string>>({});
   const [deliveryDriverIds, setDeliveryDriverIds] = useState<Record<string, string | null>>({});
   const [driverNames, setDriverNames] = useState<Record<string, string>>({});
   const [manualPeak, setManualPeak] = useState<boolean>(false);
+  const [pickupEnabled, setPickupEnabled] = useState<boolean>(true);
+  const [duePromptOrder, setDuePromptOrder] = useState<Order | null>(null);
+  const [reports, setReports] = useState<DriverReport[]>([]);
   const prevIdsRef = useRef<Set<string>>(new Set());
   const prevStatusRef = useRef<Record<string, string>>({});
 
   async function load() {
-    const [{ data: os }, { data: deliveryRows }] = await Promise.all([
+    const [{ data: os }, { data: deliveryRows }, { data: settingRow }, { data: reportRows }] = await Promise.all([
       supabase
         .from("orders")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(200),
       supabase.from("deliveries").select("order_id, status, driver_id"),
-      supabase.from("delivery_settings").select("manual_peak_mode").eq("id", "default").maybeSingle(),
+      (supabase.from("delivery_settings") as any).select("manual_peak_mode,pickup_enabled,base_prep_min,auto_ready_mode").eq("id", "default").maybeSingle(),
+      (supabase as any).from("driver_reports").select("id,order_id,driver_id,reason,details,status,created_at").in("status", ["open","reviewing"]).order("created_at", { ascending: false }),
     ]);
+    setManualPeak(Boolean((settingRow as any)?.manual_peak_mode));
+    setPickupEnabled((settingRow as any)?.pickup_enabled !== false);
+    setReports((reportRows ?? []) as DriverReport[]);
     const list = (os as Order[]) ?? [];
+    if ((settingRow as any)?.auto_ready_mode === "automatic") {
+      void (supabase.rpc as any)("advance_due_kitchen_orders");
+    } else {
+      const cutoff = Date.now() - Number((settingRow as any)?.base_prep_min ?? 25) * 60_000;
+      setDuePromptOrder(list.find((order) => order.status === "preparing" && new Date(order.updated_at).getTime() <= cutoff) ?? null);
+    }
     // Detect new pending orders for browser notifications + toast
     const newOnes = list.filter((o) => o.status === "pending" && !prevIdsRef.current.has(o.id));
     if (prevIdsRef.current.size > 0) {
@@ -169,8 +192,25 @@ function Admin() {
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "driver_reports" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
+  }, [role]);
+
+  useEffect(() => {
+    if (!role) return;
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [role]);
+
+  useEffect(() => {
+    if (!role) return;
+    const channel = supabase.channel("receipt-print-jobs-admin")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "receipt_print_jobs" }, (payload) => {
+        const job = payload.new as { id: string; order_id: string };
+        void printOrderReceipt(job.order_id, job.id).catch((error) => toast.error(error.message));
+      }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
   }, [role]);
 
   async function updateStatus(id: string, status: Order["status"]) {
@@ -183,7 +223,8 @@ function Admin() {
       }
     }
     const nextStatus = status === "handed_to_driver" ? "handed_to_driver" : status;
-    const { error } = await supabase.from("orders").update({ status: nextStatus }).eq("id", id);
+    const workflowStatus = status === "preparing" ? "preparing" : status === "ready" ? "ready_for_pickup" : status === "completed" ? "delivered" : status === "cancelled" ? "cancelled" : undefined;
+    const { error } = await (supabase.from("orders") as any).update({ status: nextStatus, ...(workflowStatus ? { workflow_status: workflowStatus } : {}) }).eq("id", id);
     if (error) {
       toast.error(error.message);
       return;
@@ -203,9 +244,13 @@ function Admin() {
       toast.success("Marked ready · driver can pick it up once it is handed over");
     } else if (current?.fulfillment === "delivery" && status === "handed_to_driver") {
       toast.success("Marked handed to driver · the driver can now start the handoff flow");
+    } else if (current?.fulfillment === "pickup" && status === "completed") {
+      toast.success("Order collected");
     } else {
       toast.success(`Marked ${STATUS_META[nextStatus].label}`);
     }
+    if (status === "preparing") void sendOrderEventEmail(id, "preparing");
+    if (status === "ready") void sendOrderEventEmail(id, "ready");
     void logAdminAction({
       action_type: status === "cancelled" ? "order_cancelled" : "order_status_changed",
       action_description: `Changed order ${current?.order_number ?? id} to ${nextStatus}`,
@@ -223,7 +268,7 @@ function Admin() {
     const { data: u } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("orders")
-      .update({ verified_at: new Date().toISOString(), verified_by: u.user?.id, status: "completed" })
+      .update({ verified_at: new Date().toISOString(), verified_by: u.user?.id, status: "completed", workflow_status: "delivered" } as never)
       .eq("id", order.id);
     if (error) {
       toast.error(error.message);
@@ -232,7 +277,7 @@ function Admin() {
     if (order.fulfillment === "delivery") {
       await supabase.from("deliveries").update({ status: "delivered" } as never).eq("order_id", order.id);
     }
-    toast.success(`Order ${order.order_number} verified & completed`);
+    toast.success(order.fulfillment === "pickup" ? `Order ${order.order_number} collected` : `Order ${order.order_number} delivered`);
     void logAdminAction({ action_type: "order_verified", action_description: `Verified and completed order ${order.order_number}`, target_type: "order", target_id: order.id, metadata: { before: order.status, after: "completed" } });
   }
 
@@ -267,6 +312,22 @@ function Admin() {
     }
   }
 
+  async function togglePickup() {
+    const { error } = await (supabase.from("delivery_settings") as any).update({ pickup_enabled: !pickupEnabled }).eq("id", "default");
+    if (error) return toast.error(error.message);
+    setPickupEnabled(!pickupEnabled);
+    toast.success(!pickupEnabled ? "Pickup enabled" : "Pickup disabled");
+  }
+
+  async function reviewReport(reportId: string, driverAction?: "suspend" | "expel") {
+    const resolution = window.prompt(driverAction ? `Reason to ${driverAction} this driver:` : "Resolution note:");
+    if (resolution === null) return;
+    const { error } = await (supabase.rpc as any)("review_driver_report", { _report_id: reportId, _status: "resolved", _resolution: resolution, _driver_action: driverAction ?? null });
+    if (error) return toast.error(error.message);
+    toast.success(driverAction ? `Driver ${driverAction === "suspend" ? "suspended" : "expelled"}` : "Report resolved");
+    void load();
+  }
+
   if (pathname !== "/admin") {
     return <Outlet />;
   }
@@ -289,6 +350,7 @@ function Admin() {
   }
 
   const filtered = orders.filter((o) => {
+    if (o.fulfillment === "delivery" && ["pending_driver_acceptance", "accepted_by_driver", "rejected_by_driver"].includes(o.workflow_status ?? "")) return false;
     const displayStatus = resolveOrderDisplayStatus(o.status, deliveryStatuses[o.id]);
     if (branchFilter !== "all" && o.branch_id !== branchFilter) return false;
     if (filter === "all") return true;
@@ -296,59 +358,38 @@ function Admin() {
     return displayStatus === filter;
   });
 
-  const todayRevenueOrders = orders.filter((o) => {
-    if (branchFilter !== "all" && o.branch_id !== branchFilter) return false;
-    if (o.status === "cancelled") return false;
-    return isSameDay(o.created_at);
-  });
-
   const stats = {
     new: filtered.filter((o) => resolveOrderDisplayStatus(o.status, deliveryStatuses[o.id]) === "pending").length,
     prep: filtered.filter((o) => resolveOrderDisplayStatus(o.status, deliveryStatuses[o.id]) === "preparing").length,
+    ready: filtered.filter((o) => resolveOrderDisplayStatus(o.status, deliveryStatuses[o.id]) === "ready").length,
     out: filtered.filter((o) => {
       const displayStatus = resolveOrderDisplayStatus(o.status, deliveryStatuses[o.id]);
-      return displayStatus === "out_for_delivery" || displayStatus === "handed_to_driver" || displayStatus === "ready" || displayStatus === "picked_up" || displayStatus === "on_the_way";
+      return displayStatus !== null && ["handed_to_driver", "picked_up", "on_the_way", "out_for_delivery"].includes(displayStatus);
     }).length,
-    revenue: todayRevenueOrders.reduce((sum, o) => sum + o.subtotal_cents, 0),
   };
 
   return (
     <div className="min-h-screen pb-10 bg-muted/40">
       <header className="sticky top-0 z-30 border-b bg-background">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 gap-2">
-          <Link to="/" className="font-display text-2xl text-brand flex items-center gap-2">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
+          <Link to="/" className="flex min-w-0 items-center gap-2 font-display text-xl text-brand sm:text-2xl">
             <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
-            <span>Champs Admin</span>
+            <span className="truncate">Champs Admin</span>
           </Link>
-          <div className="flex items-center gap-2">
-            {/* Small-screen quick links (hidden on large screens where sidebar appears) */}
-            <Link to="/admin/promotions" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <Sparkles className="h-3.5 w-3.5" /> Promos
-            </Link>
-            <Link to="/admin/menu" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <Utensils className="h-3.5 w-3.5" /> Menu
-            </Link>
-            <Link to="/admin/appearance" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <Paintbrush className="h-3.5 w-3.5" /> Appearance
-            </Link>
-            <Link to="/admin/deliveries" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <Bike className="h-3.5 w-3.5" /> Deliveries
-            </Link>
-            <Link to="/admin/revenue" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <TrendingUp className="h-3.5 w-3.5" /> Revenue
-            </Link>
-            <Link to="/admin/audit-trail" className="inline-flex md:hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold hover:bg-accent">
-              <ShieldCheck className="h-3.5 w-3.5" /> Audit Trail
-            </Link>
-            <button onClick={load} className="grid h-8 w-8 place-items-center rounded-full border hover:bg-accent"><RefreshCw className="h-4 w-4" /></button>
-            <button onClick={toggleManualPeak} title="Toggle peak mode" className={"grid h-8 w-8 place-items-center rounded-full border hover:bg-accent " + (manualPeak ? "bg-amber-500 text-white" : "")}>{manualPeak ? <Sparkles className="h-4 w-4" /> : <Clock className="h-4 w-4" />}</button>
-            <button onClick={signOut} className="grid h-8 w-8 place-items-center rounded-full border hover:bg-accent"><LogOut className="h-4 w-4" /></button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <NotificationCenter />
+            <button onClick={load} className="hidden h-8 w-8 place-items-center rounded-full border hover:bg-accent sm:grid" aria-label="Refresh orders"><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setMobileNavOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-full border md:hidden" aria-label="Open admin menu" aria-expanded={mobileNavOpen}>{mobileNavOpen ? <X className="h-4 w-4" /> : <MenuIcon className="h-4 w-4" />}</button>
+            <button onClick={signOut} className="hidden h-8 w-8 place-items-center rounded-full border hover:bg-accent sm:grid" aria-label="Sign out"><LogOut className="h-4 w-4" /></button>
           </div>
         </div>
+        {mobileNavOpen && <div className="border-t bg-background p-3 md:hidden"><nav className="grid grid-cols-2 gap-2">{[
+          ["/admin", "Orders", ShieldCheck], ["/admin/menu", "Menu", Utensils], ["/admin/promotions", "Promotions", Sparkles], ["/admin/appearance", "Appearance", Paintbrush], ["/admin/deliveries", "Deliveries", Bike], ["/admin/revenue", "Revenue", TrendingUp], ["/admin/messages", "Messages", MessageCircle], ["/admin/complaints", "Complaints", Flag], ["/admin/audit-trail", "Audit trail", ShieldCheck], ["/admin/security", "Security", LockKeyhole],
+        ].map(([to, label, Icon]: any) => <Link key={to} to={to} onClick={() => setMobileNavOpen(false)} className="flex items-center gap-2 rounded-xl border p-3 text-sm font-semibold"><Icon className="h-4 w-4 text-brand" />{label}</Link>)}</nav><div className="mt-3 grid grid-cols-2 gap-2"><button onClick={toggleManualPeak} className="rounded-xl border p-2 text-xs font-bold">Peak {manualPeak ? "on" : "off"}</button><button onClick={togglePickup} className="rounded-xl border p-2 text-xs font-bold">Pickup {pickupEnabled ? "on" : "off"}</button><button onClick={load} className="rounded-xl border p-2 text-xs font-bold">Refresh</button><button onClick={signOut} className="rounded-xl border p-2 text-xs font-bold">Sign out</button></div></div>}
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-4">
-        <div className="lg:flex lg:items-start lg:gap-6">
+        <div className="min-w-0 lg:flex lg:items-start lg:gap-6">
           <aside className="hidden md:block mb-4 w-full lg:mb-0 lg:w-56 lg:shrink-0">
             <div className="rounded-2xl border bg-card p-3 lg:sticky lg:top-[68px]">
               <div className="mb-3 flex flex-col gap-2">
@@ -392,19 +433,25 @@ function Admin() {
                 <Link to="/admin/audit-trail" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}>
                   <ShieldCheck className="h-4 w-4" /> {!sidebarCollapsed && "Audit Trail"}
                 </Link>
+                <Link to="/admin/messages" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><MessageCircle className="h-4 w-4" /> {!sidebarCollapsed && "Driver Messages"}</Link>
+                <Link to="/admin/complaints" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><Flag className="h-4 w-4" /> {!sidebarCollapsed && "Complaints"}</Link>
+                <Link to="/admin/security" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><LockKeyhole className="h-4 w-4" /> {!sidebarCollapsed && "Security"}</Link>
               </nav>
             </div>
           </aside>
 
-          <main className="flex-1">
+          <main className="min-w-0 flex-1">
+                      {role === "admin" && reports.length > 0 && (
+                        <div className="mb-4 rounded-2xl border border-destructive/30 bg-card p-4"><div className="mb-3 inline-flex items-center gap-2 font-display text-lg text-destructive"><Flag className="h-4 w-4" /> Driver reports ({reports.length})</div><div className="space-y-2">{reports.map((report) => <div key={report.id} className="rounded-xl border p-3 text-sm"><div className="font-semibold">{report.reason}</div><div className="mt-1 text-xs text-muted-foreground">{report.details}</div><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => reviewReport(report.id)} className="rounded-full border px-3 py-1.5 text-xs font-semibold">Resolve</button><button onClick={() => reviewReport(report.id, "suspend")} className="rounded-full bg-amber-500 px-3 py-1.5 text-xs font-bold text-white">Suspend driver</button><button onClick={() => reviewReport(report.id, "expel")} className="rounded-full bg-destructive px-3 py-1.5 text-xs font-bold text-destructive-foreground">Expel driver</button></div></div>)}</div></div>
+                      )}
                       {role === "admin" && (
-                        <form onSubmit={grantAccess} className="mb-4 flex gap-2">
+                        <form onSubmit={grantAccess} className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                           <input
                             type="email"
                             value={grantEmail}
                             onChange={(event) => setGrantEmail(event.target.value)}
                             placeholder="staff@example.com"
-                            className="min-w-52 flex-1 rounded-md border px-3 py-2 text-sm"
+                            className="min-w-0 rounded-md border px-3 py-2 text-sm"
                           />
                           <select value={grantRole} onChange={(event) => setGrantRole(event.target.value as "admin" | "staff")} className="rounded-md border px-3 py-2 text-sm">
                             <option value="admin">Admin</option>
@@ -439,19 +486,18 @@ function Admin() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Stat label="New" value={stats.new} tone="bg-amber-500" />
           <Stat label="Preparing" value={stats.prep} tone="bg-blue-500" />
+          <Stat label="Ready" value={stats.ready} tone="bg-emerald-500" />
           <Stat label="Out for delivery" value={stats.out} tone="bg-purple-500" />
-          <Stat label="Today revenue" value={formatZAR(stats.revenue)} tone="bg-brand" />
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           {([
             { value: "active", label: "Active" },
-            { value: "pending", label: "Received" },
             { value: "preparing", label: "Preparing" },
             { value: "ready", label: "Ready" },
             { value: "handed_to_driver", label: "Handed to driver" },
             { value: "out_for_delivery", label: "Out for delivery" },
-            { value: "completed", label: "Delivered" },
+            { value: "completed", label: "Completed" },
             { value: "all", label: "All" },
           ] as const).map((f) => (
             <button
@@ -483,6 +529,7 @@ function Admin() {
                 driverName={o.driver_id ? driverNames[o.driver_id] : undefined}
                 onUpdateStatus={updateStatus}
                 onVerify={verifyOrder}
+                onPrint={(id) => void printOrderReceipt(id).catch((error) => toast.error(error.message))}
               />
             );
           })}
@@ -490,16 +537,18 @@ function Admin() {
           </main>
         </div>
       </div>
+      {duePromptOrder && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-3xl bg-background p-5 shadow-2xl"><div className="text-xs font-bold uppercase tracking-wider text-brand">Preparation timer reached</div><h2 className="mt-1 font-display text-2xl">Is {duePromptOrder.order_number} ready?</h2><p className="mt-2 text-sm text-muted-foreground">The configured base preparation time has elapsed. Confirm now or dismiss and keep preparing.</p><div className="mt-5 flex gap-2"><button onClick={() => setDuePromptOrder(null)} className="flex-1 rounded-full border px-4 py-2 text-sm font-bold">Keep preparing</button><button onClick={() => { void updateStatus(duePromptOrder.id, "ready"); setDuePromptOrder(null); }} className="flex-1 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">Mark ready</button></div></div></div>}
     </div>
   );
 }
 
 function OrderCard({
-  order: o, items, branchName, branchPhone, deliveryStatus, deliveryDriverId, driverName, onUpdateStatus, onVerify,
+  order: o, items, branchName, branchPhone, deliveryStatus, deliveryDriverId, driverName, onUpdateStatus, onVerify, onPrint,
 }: {
   order: Order; items: ItemRow[]; branchName: string; branchPhone: string | null; deliveryStatus?: string | null; deliveryDriverId?: string | null; driverName?: string;
   onUpdateStatus: (id: string, s: Order["status"]) => void;
   onVerify: (o: Order, pin: string) => void;
+  onPrint: (id: string) => void;
 }) {
   const effectiveStatus = resolveOrderDisplayStatus(o.status, deliveryStatus) ?? o.status;
   const meta = STATUS_META[effectiveStatus];
@@ -507,6 +556,8 @@ function OrderCard({
   const statusFlow = o.fulfillment === "pickup" ? PICKUP_STATUS_FLOW : DELIVERY_STATUS_FLOW;
   const currentIdx = statusFlow.indexOf(effectiveStatus as Order["status"]);
   const next = currentIdx >= 0 && currentIdx < statusFlow.length - 1 ? statusFlow[currentIdx + 1] : null;
+  const statusLabel = o.fulfillment === "pickup" && effectiveStatus === "completed" ? "Collected" : meta.label;
+  const nextLabel = o.fulfillment === "pickup" && next === "completed" ? "Collected" : next ? STATUS_META[next].label : null;
   const shouldShowNext = !(o.fulfillment === "delivery" && (effectiveStatus === "completed" || effectiveStatus === "cancelled"));
   const [pinInput, setPinInput] = useState("");
   const [showVerify, setShowVerify] = useState(false);
@@ -522,7 +573,7 @@ function OrderCard({
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white ${meta.color}`}>
-            <StatusIcon className="h-3 w-3" /> {meta.label}
+            <StatusIcon className="h-3 w-3" /> {statusLabel}
           </span>
           {o.verified_at && (
             <span className="inline-flex items-center gap-1 rounded-full bg-green-600 px-2 py-0.5 text-[9px] font-bold uppercase text-white">
@@ -533,7 +584,7 @@ function OrderCard({
       </div>
       <div className="mt-3 text-sm">
         <div className="font-semibold">{o.customer_name} · <span className="text-muted-foreground font-normal">{o.customer_phone}</span></div>
-        <div className="mt-1 inline-flex items-center gap-1 text-xs">
+        <div className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs ${o.fulfillment === "delivery" ? "bg-purple-100 text-purple-800 dark:bg-purple-950/40 dark:text-purple-200" : "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200"}`}>
           {o.fulfillment === "delivery" ? <Bike className="h-3 w-3" /> : <Package className="h-3 w-3" />}
           <span className="capitalize font-semibold">{o.fulfillment}</span>
         </div>
@@ -586,6 +637,8 @@ function OrderCard({
       <div className="mt-3 flex items-center justify-between border-t pt-3 gap-2">
         <div className="font-display text-xl text-brand">{formatZAR(o.subtotal_cents)}</div>
         <div className="flex gap-1.5 flex-wrap justify-end">
+          <button onClick={() => onPrint(o.id)} className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-bold"><Printer className="h-3 w-3" /> Print</button>
+          {o.driver_id && <ChatDialog audience="champs" orderId={o.id} driverId={o.driver_id} label="Driver chat" className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-bold" />}
           <a href={waHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-full bg-[#25D366] px-2.5 py-1.5 text-[11px] font-bold text-white hover:opacity-90">
             <MessageCircle className="h-3 w-3" /> WA
           </a>
@@ -604,7 +657,7 @@ function OrderCard({
                 (next === "handed_to_driver" && !deliveryDriverId ? "opacity-50 cursor-not-allowed" : "")
               }
             >
-              → {STATUS_META[next as keyof typeof STATUS_META].label}
+              → {nextLabel}
             </button>
           )}
         </div>
@@ -613,12 +666,13 @@ function OrderCard({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone: string }) {
-  return (
-    <div className="rounded-2xl border bg-card p-3">
+function Stat({ label, value, tone, to }: { label: string; value: React.ReactNode; tone: string; to?: "/admin/revenue" }) {
+  const content = (
+    <div className={`rounded-2xl border bg-card p-3 ${to ? "transition-colors hover:bg-accent" : ""}`}>
       <div className={"inline-block h-2 w-6 rounded-full " + tone} />
       <div className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className="mt-0.5 font-display text-2xl">{value}</div>
     </div>
   );
+  return to ? <Link to={to}>{content}</Link> : content;
 }

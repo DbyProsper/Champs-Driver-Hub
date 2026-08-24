@@ -7,7 +7,7 @@ import { useBranch } from "@/lib/branch";
 import { formatZAR } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { MapPin, Loader2, Navigation, AlertTriangle, Bike } from "lucide-react";
+import { MapPin, Loader2, Navigation, AlertTriangle, Bike, Phone, MessageCircle, Star, X } from "lucide-react";
 import {
   DEFAULT_DELIVERY_SETTINGS,
   fetchDeliverySettings,
@@ -26,6 +26,13 @@ import {
 } from "@/lib/delivery";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { getMenuImageForItem } from "@/lib/menu-images";
+import { ChatDialog } from "@/components/ChatDialog";
+import { ImagePreview } from "@/components/ImagePreview";
+import { sendOrderEventEmail } from "@/lib/order-email";
+
+type CheckoutDriver = { driver_id: string; user_id: string; name: string; profile_image_url: string | null; phone: string; rating: number; distance_km: number | null; status: "online" | "offline" };
+type DriverReview = { rating: number; comment: string | null; created_at: string };
+type SubmittedOrder = { id: string; number: string; driver: CheckoutDriver; totalCents: number };
 
 export const Route = createFileRoute("/checkout")({
   head: () => ({
@@ -69,6 +76,11 @@ function Checkout() {
   const [distanceBusy, setDistanceBusy] = useState(false);
   const [distanceError, setDistanceError] = useState<string | null>(null);
   const [driversOnline, setDriversOnline] = useState<number | null>(null);
+  const [drivers, setDrivers] = useState<CheckoutDriver[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState<string>("");
+  const [driverReviews, setDriverReviews] = useState<Record<string, DriverReview[]>>({});
+  const [submittedOrder, setSubmittedOrder] = useState<SubmittedOrder | null>(null);
+  const [storeOpen, setStoreOpen] = useState<boolean | null>(null);
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -86,9 +98,44 @@ function Checkout() {
       .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, () => {
         fetchOnlineDriverCount().then(setDriversOnline).catch(() => {});
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
+        fetchActiveDeliveryCount().then(setActiveCount).catch(() => {});
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "delivery_settings", filter: "id=eq.default" }, () => {
+        fetchDeliverySettings().then(setSettings).catch(() => {});
+      })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, []);
+
+  useEffect(() => {
+    const updateStoreHours = () => {
+      const hour = new Date().getHours();
+      setStoreOpen(hour >= 8 && hour < 21);
+    };
+    updateStoreHours();
+    const timer = window.setInterval(updateStoreHours, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (form.fulfillment !== "delivery" || !userId) { setDrivers([]); setSelectedDriverId(""); return; }
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await (supabase.rpc as any)("list_available_drivers", { _latitude: coords?.lat ?? null, _longitude: coords?.lng ?? null });
+      if (cancelled) return;
+      if (error) { toast.error("Could not load drivers"); return; }
+      const list = (data ?? []) as CheckoutDriver[];
+      setDrivers(list);
+      const reviewEntries = await Promise.all(list.map(async (driver) => {
+        const { data: reviews } = await (supabase.rpc as any)("get_driver_reviews", { _driver_id: driver.driver_id });
+        return [driver.driver_id, (reviews ?? []) as DriverReview[]] as const;
+      }));
+      if (!cancelled) setDriverReviews(Object.fromEntries(reviewEntries));
+      setSelectedDriverId((current) => list.some((driver) => driver.driver_id === current && driver.status === "online") ? current : (list.find((driver) => driver.status === "online")?.driver_id ?? ""));
+    })();
+    return () => { cancelled = true; };
+  }, [form.fulfillment, userId, coords?.lat, coords?.lng]);
 
   useEffect(() => {
     (async () => {
@@ -149,6 +196,15 @@ function Checkout() {
 
   const deliveryEligibility = useMemo(() => getCartDeliveryEligibility(items, subtotalCents), [items, subtotalCents]);
   const customerDeliveryAllowed = settings.delivery_enabled && !settings.drivers_dial_up_only;
+  const deliveryCurrentlyAvailable = customerDeliveryAllowed && (driversOnline ?? 0) > 0;
+
+  useEffect(() => {
+    if (!settings.pickup_enabled && deliveryCurrentlyAvailable && form.fulfillment === "pickup") {
+      setForm((current) => ({ ...current, fulfillment: "delivery" }));
+    } else if (!deliveryCurrentlyAvailable && settings.pickup_enabled && form.fulfillment === "delivery") {
+      setForm((current) => ({ ...current, fulfillment: "pickup" }));
+    }
+  }, [settings.pickup_enabled, deliveryCurrentlyAvailable, form.fulfillment]);
   const quote: DeliveryQuote | null = useMemo(() => {
     if (form.fulfillment !== "delivery") return null;
     if (!deliveryEligibility.allowed) return null;
@@ -196,8 +252,12 @@ function Checkout() {
     if (!branch) return toast.error("Please choose a branch first");
     const parsed = schema.safeParse(form);
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
+    if (!userId) return toast.error("Please sign in before placing an order so only you can track it");
+    if (parsed.data.fulfillment === "pickup" && !settings.pickup_enabled) return toast.error("Pickup is currently disabled");
 
     if (parsed.data.fulfillment === "delivery") {
+      if (!userId) return toast.error("Please sign in before choosing and messaging a driver");
+      if (!selectedDriverId) return toast.error("Choose an online driver");
       if (!customerDeliveryAllowed) return toast.error(settings.delivery_enabled ? "Customer delivery is temporarily unavailable" : "Delivery is currently disabled");
       if (!deliveryEligibility.allowed) return toast.error(deliveryEligibility.reason ?? "Delivery unavailable for this order");
       if (!coords) return toast.error("Please share your delivery location");
@@ -224,6 +284,8 @@ function Checkout() {
           delivery_fee_cents: isDelivery ? deliveryFee : 0,
           distance_km: isDelivery && quote?.ok ? quote.distance_km : null,
           delivery_status: isDelivery ? "pending" : null,
+          driver_id: isDelivery ? selectedDriverId : null,
+          workflow_status: isDelivery ? "pending_driver_acceptance" : "pickup_pending",
         } as never)
         .select("id, order_number")
         .single();
@@ -235,9 +297,10 @@ function Checkout() {
         const deadline = new Date(now.getTime() + 20_000);
         await (supabase.from("deliveries") as any).upsert({
           order_id: orderRow.id,
+          driver_id: selectedDriverId,
           distance_km: quote?.ok ? quote.distance_km : null,
           delivery_fee_cents: deliveryFee,
-          status: "pending",
+          status: "pending_driver_acceptance",
           broadcast_at: now.toISOString(),
           assign_deadline_at: deadline.toISOString(),
         }, { onConflict: "order_id" });
@@ -246,13 +309,14 @@ function Checkout() {
       const { error: iErr } = await supabase.from("order_items").insert(
         items.map((i) => ({
           order_id: orderRow.id,
-          menu_item_id: i.id,
+          menu_item_id: i.menu_item_id ?? i.id,
           item_name: i.variant ? `${i.name} — ${i.variant}` : i.name,
           unit_price_cents: i.unit_price_cents,
           quantity: i.quantity,
         })),
       );
       if (iErr) throw iErr;
+      void sendOrderEventEmail(orderRow.id, "created");
 
       try {
         const list = JSON.parse(localStorage.getItem("champs-orders") || "[]");
@@ -260,8 +324,15 @@ function Checkout() {
         localStorage.setItem("champs-orders", JSON.stringify(list.slice(0, 10)));
       } catch {}
 
-      clear();
-      nav({ to: "/order/$number", params: { number: orderRow.order_number } });
+      if (isDelivery) {
+        const chosen = drivers.find((driver) => driver.driver_id === selectedDriverId);
+        if (!chosen) throw new Error("Selected driver is no longer available");
+        setSubmittedOrder({ id: orderRow.id, number: orderRow.order_number, driver: chosen, totalCents });
+        clear();
+      } else {
+        clear();
+        nav({ to: "/order/$number", params: { number: orderRow.order_number } });
+      }
     } catch (err: any) {
       toast.error(err.message ?? "Could not place order");
       setSubmitting(false);
@@ -308,20 +379,25 @@ function Checkout() {
 
         <section>
           <h2 className="font-display text-xl mb-2">Order type</h2>
-          {driversOnline === 0 && (
+          {!settings.pickup_enabled && deliveryCurrentlyAvailable && (
             <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs flex items-start gap-2">
               <Bike className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" />
-              <span>Delivery currently unavailable — no drivers online. You can still order for pickup.</span>
+              <span>Pickup is temporarily unavailable, but delivery is available with an online driver.</span>
             </div>
           )}
-          {!customerDeliveryAllowed && (
+          {!settings.pickup_enabled && !deliveryCurrentlyAvailable && (
             <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              {settings.delivery_enabled ? "Customer delivery is temporarily unavailable. Pickup is still available." : "Delivery is currently disabled. Pickup is still available."}
+              Pickup and delivery aren't available right now. {storeOpen === true ? "The store is open—please order in-store." : storeOpen === false ? "The store is closed; in-store ordering is available daily from 08:00 to 21:00." : "In-store ordering is available daily from 08:00 to 21:00."}
+            </div>
+          )}
+          {settings.pickup_enabled && !deliveryCurrentlyAvailable && (
+            <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              Delivery is temporarily unavailable because no eligible driver has capacity. Pickup is still available.
             </div>
           )}
           <div className="grid grid-cols-2 gap-2">
             {(["pickup", "delivery"] as const).map((v) => {
-              const disabled = v === "delivery" && (!customerDeliveryAllowed || driversOnline === 0);
+              const disabled = v === "pickup" ? !settings.pickup_enabled : !deliveryCurrentlyAvailable;
               return (
                 <button
                   type="button"
@@ -441,6 +517,21 @@ function Checkout() {
                   Delivery fees: 0–{settings.tier1_max_km}km {formatZAR(settings.tier1_fee_cents)} · {settings.tier1_max_km}–{settings.tier2_max_km}km {formatZAR(settings.tier2_fee_cents)} · {settings.tier2_max_km}–{settings.tier3_max_km}km {formatZAR(settings.tier3_fee_cents)}
                 </p>
               )}
+              {userId ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Choose your driver</div>
+                  {drivers.length === 0 ? <div className="rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">No approved drivers are available.</div> : drivers.map((driver) => (
+                    <div key={driver.driver_id} role="button" tabIndex={driver.status === "online" ? 0 : -1} aria-disabled={driver.status !== "online"} onClick={() => driver.status === "online" && setSelectedDriverId(driver.driver_id)} onKeyDown={(event) => { if (driver.status === "online" && (event.key === "Enter" || event.key === " ")) setSelectedDriverId(driver.driver_id); }} className={`flex w-full items-center gap-3 rounded-xl border-2 p-3 text-left ${selectedDriverId === driver.driver_id ? "border-brand bg-brand/5" : "border-border bg-card"} ${driver.status !== "online" ? "opacity-60" : "cursor-pointer"}`}>
+                      {driver.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.name} profile picture`} className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-muted font-display text-brand">{driver.name.slice(0, 1)}</div>}
+                      <div className="min-w-0 flex-1"><div className="font-semibold">{driver.name}</div><div className="text-xs text-muted-foreground">{driver.phone} · {driver.distance_km == null ? "Distance unavailable" : `${Number(driver.distance_km).toFixed(1)} km`}</div>{driverReviews[driver.driver_id]?.[0]?.comment && <div className="mt-1 truncate text-[11px] italic text-muted-foreground">“{driverReviews[driver.driver_id][0].comment}”</div>}</div>
+                      <div className="text-right"><div className={`text-[10px] font-bold uppercase ${driver.status === "online" ? "text-emerald-600" : "text-muted-foreground"}`}>{driver.status === "online" ? "● Online" : "○ Offline"}</div><div className="mt-1 inline-flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-amber-400 text-amber-400" /> {Number(driver.rating || 0).toFixed(1)}</div></div>
+                    </div>
+                  ))}
+                  <a href="/account#complaints" className="inline-flex text-xs font-semibold text-destructive underline">Report a driver or submit a complaint</a>
+                </div>
+              ) : (
+                <Link to="/auth" className="block rounded-xl border border-brand/30 bg-brand/5 p-3 text-center text-sm font-semibold text-brand">Sign in to choose and chat with a driver</Link>
+              )}
             </div>
           )}
         </section>
@@ -467,11 +558,11 @@ function Checkout() {
               </div>
             )}
             <div className="mt-2 flex justify-between border-t border-border pt-3">
-              <span className="font-bold">Pay now</span>
-              <span className="font-display text-xl text-brand">{formatZAR(subtotalCents)}</span>
+              <span className="font-bold">Full amount</span>
+              <span className="font-display text-xl text-brand">{formatZAR(totalCents)}</span>
             </div>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">Food is paid now at checkout. Delivery is paid separately to your driver after the order is delivered.</p>
+          <p className="mt-3 text-xs text-muted-foreground">For delivery, confirm the order with your driver and send the full amount shown above: food plus delivery.</p>
         </section>
 
         <button
@@ -479,9 +570,23 @@ function Checkout() {
           disabled={submitting || !branch || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
           className="w-full rounded-full bg-brand py-4 text-sm font-bold text-brand-foreground hover:bg-brand-dark disabled:opacity-60"
         >
-          {submitting ? "Placing order…" : `Place order · ${formatZAR(subtotalCents)}`}
+          {submitting ? "Sending order…" : form.fulfillment === "delivery" ? `Send Order to Driver · ${formatZAR(totalCents)}` : `Place order · ${formatZAR(subtotalCents)}`}
         </button>
       </form>
+      {submittedOrder && (
+        <div className="fixed inset-0 z-[75] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md rounded-3xl border bg-background p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3"><div><h2 className="font-display text-2xl text-brand">Order sent</h2><p className="mt-1 text-sm text-muted-foreground">Your order has been sent. Please confirm with the driver.</p></div><button type="button" onClick={() => nav({ to: "/order/$number", params: { number: submittedOrder.number } })} className="grid h-9 w-9 place-items-center rounded-full border"><X className="h-4 w-4" /></button></div>
+            <div className="mt-5 rounded-2xl bg-muted/40 p-4"><div className="font-semibold">{submittedOrder.driver.name}</div><div className="text-xs text-muted-foreground">{submittedOrder.driver.phone}</div><div className="mt-2 text-sm">Send the driver the full amount: <span className="font-display text-brand">{formatZAR(submittedOrder.totalCents)}</span></div></div>
+            <div className="mt-4 grid gap-2">
+              <ChatDialog orderId={submittedOrder.id} label="In-App Chat" className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3 text-sm font-bold text-brand-foreground" />
+              <a href={`https://wa.me/${submittedOrder.driver.phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi ${submittedOrder.driver.name}, please confirm Champs order ${submittedOrder.number}. The full amount (food + delivery) is ${formatZAR(submittedOrder.totalCents)}.`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full bg-[#25D366] py-3 text-sm font-bold text-white"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
+              <a href={`tel:${submittedOrder.driver.phone}`} className="inline-flex items-center justify-center gap-2 rounded-full border py-3 text-sm font-bold"><Phone className="h-4 w-4" /> Call</a>
+              <button type="button" onClick={() => nav({ to: "/order/$number", params: { number: submittedOrder.number } })} className="py-2 text-sm font-semibold text-brand">View order</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

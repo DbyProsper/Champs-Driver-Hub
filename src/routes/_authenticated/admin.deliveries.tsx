@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Bike, Plus, Trash2, Loader2, Phone, Zap, MoreVertical } from "lucide-react";
+import { ArrowLeft, Bike, Plus, Loader2, Phone, Zap, X, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -16,13 +16,15 @@ import {
   type DeliverySettings,
 } from "@/lib/delivery";
 import { logAdminAction } from "@/lib/audit";
+import { SA_BANKS } from "@/lib/sa-banks";
+import { ImagePreview } from "@/components/ImagePreview";
 
 export const Route = createFileRoute("/_authenticated/admin/deliveries")({
   head: () => ({ meta: [{ title: "Deliveries — Champs Admin" }, { name: "robots", content: "noindex" }] }),
   component: DeliveriesPage,
 });
 
-type Driver = { id: string; user_id: string | null; name: string; phone: string; status: string; approval_status?: string | null; branch_id: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null };
+type Driver = { id: string; user_id: string | null; name: string; phone: string; status: string; profile_image_url?: string | null; rating?: number; rating_count?: number; approval_status?: string | null; suspended_until?: string | null; suspension_reason?: string | null; branch_id: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null };
 type Delivery = {
   id: string;
   order_id: string;
@@ -38,19 +40,21 @@ type Delivery = {
 };
 type Order = { id: string; order_number: string; customer_name: string; customer_phone: string; delivery_address: string | null; delivery_lat: number | null; delivery_lng: number | null; subtotal_cents: number; branch_id: string };
 type Branch = { id: string; name: string; city: string };
-type DriverApplication = { id: string; user_id: string; name: string; phone: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null };
+type DriverApplication = { id: string; user_id: string; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null };
+type DriverReview = { id: string; rating: number; comment: string | null; created_at: string; order_number: string };
 
 function DeliveriesPage() {
   const [loading, setLoading] = useState(true);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [applications, setApplications] = useState<DriverApplication[]>([]);
-  const [expandedDriverId, setExpandedDriverId] = useState<string | null>(null);
+  const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [selectedReviews, setSelectedReviews] = useState<DriverReview[]>([]);
+  const [profileLoading, setProfileLoading] = useState(false);
   const [orders, setOrders] = useState<Record<string, Order>>({});
   const [branches, setBranches] = useState<Record<string, Branch>>({});
   const [settings, setSettings] = useState<DeliverySettings>(DEFAULT_DELIVERY_SETTINGS);
   const [batching, setBatching] = useState(false);
-  const [settingsSaving, setSettingsSaving] = useState(false);
 
   // new driver form
   const [nd, setNd] = useState({ name: "", phone: "", email: "", branch_id: "", bank_name: "", bank_account_number: "", bank_account_holder: "" });
@@ -204,6 +208,25 @@ function DeliveriesPage() {
     load();
   }
 
+  async function suspendDriver(driver: Driver) {
+    const reason = window.prompt(`Reason for suspending ${driver.name} for 24 hours:`);
+    if (reason === null) return;
+    if (!reason.trim()) return toast.error("Enter a suspension reason");
+    const { data, error } = await (supabase.rpc as any)("suspend_driver_24h", { _driver_id: driver.id, _reason: reason.trim() });
+    if (error) return toast.error(error.message);
+    toast.success(`${driver.name} suspended for 24 hours`);
+    void logAdminAction({ action_type: "driver_suspended", action_description: `Suspended ${driver.name} for 24 hours`, target_type: "driver", target_id: driver.id, metadata: { reason: reason.trim(), suspended_until: data } });
+    load();
+  }
+
+  async function openDriver(driver: Driver) {
+    setSelectedDriver(driver);
+    setProfileLoading(true);
+    const { data } = await (supabase.rpc as any)("get_driver_reviews", { _driver_id: driver.id });
+    setSelectedReviews((data ?? []) as DriverReview[]);
+    setProfileLoading(false);
+  }
+
   async function deleteApplication(app: DriverApplication) {
     if (!confirm(`Delete ${app.name}'s driver request?`)) return;
     const { error } = await supabase.from("driver_applications").delete().eq("id", app.id);
@@ -223,7 +246,7 @@ function DeliveriesPage() {
     if (delivery?.order_id) {
       const orderPatch: Record<string, unknown> = { driver_id: driverId };
       if (driverId && previousDriverId && previousDriverId !== driverId) orderPatch.status = "ready";
-      const { error: orderError } = await supabase.from("orders").update(orderPatch).eq("id", delivery.order_id);
+      const { error: orderError } = await supabase.from("orders").update(orderPatch as never).eq("id", delivery.order_id);
       if (orderError) {
         toast.error(orderError.message);
         return;
@@ -235,17 +258,9 @@ function DeliveriesPage() {
     load();
   }
 
-  async function saveDeliveryOptions() {
-    setSettingsSaving(true);
-    const { error } = await supabase.from("delivery_settings").update({ delivery_enabled: settings.delivery_enabled, drivers_dial_up_only: settings.drivers_dial_up_only } as never).eq("id", "default");
-    setSettingsSaving(false);
-    if (error) return toast.error(error.message);
-    toast.success("Delivery options saved");
-    void logAdminAction({ action_type: "delivery_settings_updated", action_description: "Updated delivery options", target_type: "delivery_settings", target_id: "default", metadata: { delivery_enabled: settings.delivery_enabled, drivers_dial_up_only: settings.drivers_dial_up_only } });
-  }
-
   const activeDeliveries = useMemo(() => deliveries.filter((d) => d.status !== "delivered" && d.status !== "cancelled"), [deliveries]);
   const completed = useMemo(() => deliveries.filter((d) => d.status === "delivered" || d.status === "cancelled"), [deliveries]);
+  const selectedApplication = selectedDriver?.user_id ? applications.find((application) => application.user_id === selectedDriver.user_id) : null;
 
   if (loading) return <div className="grid min-h-screen place-items-center"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
 
@@ -261,16 +276,6 @@ function DeliveriesPage() {
 
       <div className="mx-auto max-w-5xl px-4 py-4 space-y-6">
         <section className="rounded-2xl border bg-card p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div><h2 className="font-display text-lg text-brand">Delivery options</h2><p className="text-xs text-muted-foreground">Control how customers and drivers use delivery.</p></div>
-            <button onClick={saveDeliveryOptions} disabled={settingsSaving} className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground disabled:opacity-60">{settingsSaving ? "Saving..." : "Save"}</button>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={settings.delivery_enabled} onChange={(e) => setSettings({ ...settings, delivery_enabled: e.target.checked })} /> <span><span className="font-semibold">Delivery enabled</span><span className="block text-xs text-muted-foreground">Allow customers to choose delivery.</span></span></label>
-            <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={settings.drivers_dial_up_only} onChange={(e) => setSettings({ ...settings, drivers_dial_up_only: e.target.checked })} /> <span><span className="font-semibold">Drivers dial up only</span><span className="block text-xs text-muted-foreground">Customers can order pickup; drivers handle delivery orders.</span></span></label>
-          </div>
-        </section>
-        <section className="rounded-2xl border bg-card p-4">
           <h2 className="font-display text-lg text-brand mb-3">Drivers</h2>
           <div className="grid gap-2 md:grid-cols-5">
             <input placeholder="Name" value={nd.name} onChange={(e) => setNd({ ...nd, name: e.target.value })} className="rounded-xl border border-input bg-background px-3 py-2 text-sm" />
@@ -285,7 +290,10 @@ function DeliveriesPage() {
             </button>
           </div>
           <div className="mt-2 grid gap-2 md:grid-cols-3">
-            <input placeholder="Bank" value={nd.bank_name} onChange={(e) => setNd({ ...nd, bank_name: e.target.value })} className="rounded-xl border border-input bg-background px-3 py-2 text-sm" />
+            <select value={nd.bank_name} onChange={(e) => setNd({ ...nd, bank_name: e.target.value })} className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
+              <option value="">Select SA bank</option>
+              {SA_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
+            </select>
             <input placeholder="Account number" value={nd.bank_account_number} onChange={(e) => setNd({ ...nd, bank_account_number: e.target.value })} className="rounded-xl border border-input bg-background px-3 py-2 text-sm" />
             <input placeholder="Account holder" value={nd.bank_account_holder} onChange={(e) => setNd({ ...nd, bank_account_holder: e.target.value })} className="rounded-xl border border-input bg-background px-3 py-2 text-sm" />
           </div>
@@ -315,10 +323,12 @@ function DeliveriesPage() {
             {drivers.map((d) => (
               <div key={d.id} className="space-y-2 rounded-2xl border border-muted/30 p-3">
                 <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
+                  <button type="button" onClick={() => void openDriver(d)} className="shrink-0 rounded-full" aria-label={`View ${d.name}'s information`}>{d.profile_image_url ? <img src={d.profile_image_url} alt={d.name} className="h-11 w-11 rounded-full object-cover" /> : <span className="grid h-11 w-11 place-items-center rounded-full bg-muted font-display text-brand">{d.name.slice(0,1)}</span>}</button>
+                  <button type="button" onClick={() => void openDriver(d)} className="min-w-0 flex-1 text-left">
                     <div className="font-semibold text-sm">{d.name}</div>
                     <div className="text-xs text-muted-foreground inline-flex items-center gap-1"><Phone className="h-3 w-3" /> {d.phone}{d.branch_id && branches[d.branch_id] ? ` · ${branches[d.branch_id].name}` : ""}</div>
-                  </div>
+                    <div className="text-[11px] text-muted-foreground">★ {Number(d.rating ?? 0).toFixed(1)} · {d.rating_count ?? 0} reviews</div>
+                  </button>
                   <select value={d.branch_id ?? ""} onChange={async (e) => {
                     const { error } = await supabase.from("drivers").update({ branch_id: e.target.value || null } as never).eq("id", d.id);
                     if (error) toast.error(error.message);
@@ -332,19 +342,8 @@ function DeliveriesPage() {
                     {Object.values(branches).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                   <span className={"rounded-full px-2 py-0.5 text-[10px] font-bold uppercase " + (d.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{d.approval_status ?? d.status}</span>
-                  <button onClick={() => setExpandedDriverId((prev) => (prev === d.id ? null : d.id))} className="grid h-8 w-8 place-items-center rounded-full border text-muted-foreground hover:bg-muted">
-                    <MoreVertical className="h-4 w-4" />
-                  </button>
+                  <button type="button" onClick={() => void openDriver(d)} className="rounded-full border px-3 py-1.5 text-xs font-bold text-brand">View</button>
                 </div>
-                {expandedDriverId === d.id && (
-                  <div className="rounded-2xl bg-muted/50 p-3 text-sm text-muted-foreground">
-                    {d.bank_name ? <div><span className="font-semibold text-foreground">Bank:</span> {d.bank_name}</div> : null}
-                    {d.bank_account_number ? <div><span className="font-semibold text-foreground">Account:</span> {d.bank_account_number}</div> : null}
-                    {d.bank_account_holder ? <div><span className="font-semibold text-foreground">Holder:</span> {d.bank_account_holder}</div> : null}
-                    {!d.bank_name && !d.bank_account_number && !d.bank_account_holder && <div>No banking details provided.</div>}
-                    <button onClick={() => removeDriver(d.id)} className="mt-3 rounded-full border border-destructive/50 px-3 py-1.5 text-xs font-semibold text-destructive">Delete driver</button>
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -382,7 +381,7 @@ function DeliveriesPage() {
                   <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-bold uppercase text-brand">{DELIVERY_STATUS_LABEL[d.status] ?? d.status}</span>
                   <select value={d.driver_id ?? ""} onChange={(e) => assignDriver(d.id, e.target.value || null)} className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
                     <option value="">Unassigned</option>
-                    {drivers.map((dr) => <option key={dr.id} value={dr.id}>{dr.name}</option>)}
+                    {drivers.filter((dr) => dr.approval_status === "approved").map((dr) => <option key={dr.id} value={dr.id}>{dr.name}</option>)}
                   </select>
                 </div>
               );
@@ -416,6 +415,18 @@ function DeliveriesPage() {
           </section>
         )}
       </div>
+      {selectedDriver && <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label={`${selectedDriver.name} driver information`} onClick={() => setSelectedDriver(null)}><div className="my-6 w-full max-w-2xl rounded-3xl border bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3">{selectedDriver.profile_image_url ? <ImagePreview src={selectedDriver.profile_image_url} alt={`${selectedDriver.name} profile picture`} className="h-20 w-20 rounded-full object-cover" /> : <div className="grid h-20 w-20 place-items-center rounded-full bg-muted font-display text-2xl text-brand">{selectedDriver.name.slice(0,1)}</div>}<div><h2 className="font-display text-3xl text-brand">{selectedDriver.name}</h2><div className="text-sm text-muted-foreground">{selectedDriver.phone} · {selectedDriver.status}</div><div className="text-sm">★ {Number(selectedDriver.rating ?? 0).toFixed(1)} from {selectedDriver.rating_count ?? 0} reviews</div></div></div><button type="button" onClick={() => setSelectedDriver(null)} className="grid h-9 w-9 place-items-center rounded-full border" aria-label="Close driver information"><X className="h-4 w-4" /></button></div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2"><Info label="Branch" value={selectedDriver.branch_id ? branches[selectedDriver.branch_id]?.name : null} /><Info label="Approval" value={selectedDriver.approval_status} /><Info label="Bank" value={selectedDriver.bank_name} /><Info label="Account number" value={selectedDriver.bank_account_number} /><Info label="Account holder" value={selectedDriver.bank_account_holder} /><Info label="Applied" value={selectedApplication ? new Date(selectedApplication.created_at).toLocaleString() : null} /><Info label="Identity number" value={selectedApplication?.id_number} /><Info label="Licence number" value={selectedApplication?.student_number} /></div>
+        {selectedApplication && <section className="mt-5"><h3 className="font-display text-xl text-brand">Application documents</h3><div className="mt-2 flex flex-wrap gap-3">{selectedApplication.profile_photo_url && <a href={selectedApplication.profile_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><ExternalLink className="h-3.5 w-3.5" /> Profile photo</a>}{selectedApplication.selfie_url && <a href={selectedApplication.selfie_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><ExternalLink className="h-3.5 w-3.5" /> Selfie with ID/licence</a>}{!selectedApplication.profile_photo_url && !selectedApplication.selfie_url && <div className="text-sm text-muted-foreground">No submitted document images.</div>}</div></section>}
+        <section className="mt-5"><h3 className="font-display text-xl text-brand">Customer reviews and comments</h3><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{profileLoading && <div className="text-sm text-muted-foreground">Loading reviews…</div>}{!profileLoading && selectedReviews.length === 0 && <div className="text-sm text-muted-foreground">No customer reviews yet.</div>}{selectedReviews.map((review) => <div key={review.id} className="rounded-xl border p-3 text-sm"><div className="flex justify-between gap-2"><span className="font-semibold">{"★".repeat(review.rating)} · Order {review.order_number}</span><span className="text-[10px] text-muted-foreground">{new Date(review.created_at).toLocaleDateString()}</span></div><div className="mt-1 text-muted-foreground">{review.comment || "No written comment."}</div></div>)}</div></section>
+        {selectedDriver.approval_status === "suspended" && selectedDriver.suspended_until && <div className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-xs text-amber-800">Suspended until {new Date(selectedDriver.suspended_until).toLocaleString()}{selectedDriver.suspension_reason ? ` · ${selectedDriver.suspension_reason}` : ""}</div>}
+        <div className="mt-5 flex flex-wrap gap-2"><button onClick={() => suspendDriver(selectedDriver)} disabled={selectedDriver.approval_status === "suspended" && Boolean(selectedDriver.suspended_until) && new Date(selectedDriver.suspended_until!).getTime() > Date.now()} className="rounded-full bg-amber-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Suspend 24 hours</button><button onClick={() => { void removeDriver(selectedDriver.id); setSelectedDriver(null); }} className="rounded-full border border-destructive/50 px-3 py-2 text-xs font-semibold text-destructive">Delete driver</button></div>
+      </div></div>}
     </div>
   );
+}
+
+function Info({ label, value }: { label: string; value?: string | null }) {
+  return <div className="rounded-xl bg-muted/50 p-3"><div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</div><div className="mt-0.5 break-words text-sm font-semibold">{value || "Not provided"}</div></div>;
 }

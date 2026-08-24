@@ -10,10 +10,49 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action_description: string
+          action_type: string
+          admin_id: string
+          created_at: string
+          id: string
+          ip_address: string | null
+          metadata: Json
+          target_id: string | null
+          target_type: string
+          user_agent: string | null
+        }
+        Insert: {
+          action_description: string
+          action_type: string
+          admin_id: string
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          target_id?: string | null
+          target_type: string
+          user_agent?: string | null
+        }
+        Update: {
+          action_description?: string
+          action_type?: string
+          admin_id?: string
+          created_at?: string
+          id?: string
+          ip_address?: string | null
+          metadata?: Json
+          target_id?: string | null
+          target_type?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
       branches: {
         Row: {
           address: string
@@ -91,6 +130,51 @@ export type Database = {
           sort_order?: number
         }
         Relationships: []
+      }
+      conversations: {
+        Row: {
+          conversation_type: string
+          created_at: string
+          driver_id: string | null
+          id: string
+          order_id: string | null
+          participants: string[]
+          updated_at: string
+        }
+        Insert: {
+          conversation_type: string
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          order_id?: string | null
+          participants: string[]
+          updated_at?: string
+        }
+        Update: {
+          conversation_type?: string
+          created_at?: string
+          driver_id?: string | null
+          id?: string
+          order_id?: string | null
+          participants?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       deliveries: {
         Row: {
@@ -213,7 +297,10 @@ export type Database = {
         Row: {
           avg_stop_min: number
           base_prep_min: number
+          delivery_enabled: boolean
+          drivers_dial_up_only: boolean
           id: string
+          manual_peak_mode: boolean
           max_radius_km: number
           max_wait_min: number
           normal_capacity_max: number
@@ -221,20 +308,22 @@ export type Database = {
           peak_capacity_max: number
           peak_capacity_min: number
           peak_threshold: number
+          pickup_enabled: boolean
           tier1_fee_cents: number
           tier1_max_km: number
           tier2_fee_cents: number
           tier2_max_km: number
           tier3_fee_cents: number
           tier3_max_km: number
-          delivery_enabled: boolean
-          drivers_dial_up_only: boolean
           updated_at: string
         }
         Insert: {
           avg_stop_min?: number
           base_prep_min?: number
+          delivery_enabled?: boolean
+          drivers_dial_up_only?: boolean
           id?: string
+          manual_peak_mode?: boolean
           max_radius_km?: number
           max_wait_min?: number
           normal_capacity_max?: number
@@ -242,20 +331,22 @@ export type Database = {
           peak_capacity_max?: number
           peak_capacity_min?: number
           peak_threshold?: number
+          pickup_enabled?: boolean
           tier1_fee_cents?: number
           tier1_max_km?: number
           tier2_fee_cents?: number
           tier2_max_km?: number
           tier3_fee_cents?: number
           tier3_max_km?: number
-          delivery_enabled?: boolean
-          drivers_dial_up_only?: boolean
           updated_at?: string
         }
         Update: {
           avg_stop_min?: number
           base_prep_min?: number
+          delivery_enabled?: boolean
+          drivers_dial_up_only?: boolean
           id?: string
+          manual_peak_mode?: boolean
           max_radius_km?: number
           max_wait_min?: number
           normal_capacity_max?: number
@@ -263,14 +354,13 @@ export type Database = {
           peak_capacity_max?: number
           peak_capacity_min?: number
           peak_threshold?: number
+          pickup_enabled?: boolean
           tier1_fee_cents?: number
           tier1_max_km?: number
           tier2_fee_cents?: number
           tier2_max_km?: number
           tier3_fee_cents?: number
           tier3_max_km?: number
-          delivery_enabled?: boolean
-          drivers_dial_up_only?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -284,11 +374,15 @@ export type Database = {
           branch_id: string | null
           created_at: string
           id: string
+          id_number: string | null
           name: string
           phone: string
+          profile_photo_url: string | null
           reviewed_at: string | null
           reviewed_by: string | null
+          selfie_url: string | null
           status: string
+          student_number: string | null
           updated_at: string
           user_id: string
         }
@@ -300,11 +394,15 @@ export type Database = {
           branch_id?: string | null
           created_at?: string
           id?: string
+          id_number?: string | null
           name: string
           phone: string
+          profile_photo_url?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          selfie_url?: string | null
           status?: string
+          student_number?: string | null
           updated_at?: string
           user_id: string
         }
@@ -316,11 +414,15 @@ export type Database = {
           branch_id?: string | null
           created_at?: string
           id?: string
+          id_number?: string | null
           name?: string
           phone?: string
+          profile_photo_url?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
+          selfie_url?: string | null
           status?: string
+          student_number?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -366,43 +468,184 @@ export type Database = {
           },
         ]
       }
+      driver_ratings: {
+        Row: {
+          comment: string | null
+          created_at: string
+          customer_id: string
+          driver_id: string
+          id: string
+          order_id: string
+          rating: number
+        }
+        Insert: {
+          comment?: string | null
+          created_at?: string
+          customer_id: string
+          driver_id: string
+          id?: string
+          order_id: string
+          rating: number
+        }
+        Update: {
+          comment?: string | null
+          created_at?: string
+          customer_id?: string
+          driver_id?: string
+          id?: string
+          order_id?: string
+          rating?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_ratings_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_reports: {
+        Row: {
+          created_at: string
+          customer_id: string
+          details: string
+          driver_id: string
+          id: string
+          order_id: string
+          reason: string
+          resolution: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          customer_id: string
+          details: string
+          driver_id: string
+          id?: string
+          order_id: string
+          reason: string
+          resolution?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          customer_id?: string
+          details?: string
+          driver_id?: string
+          id?: string
+          order_id?: string
+          reason?: string
+          resolution?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_reports_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_reports_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drivers: {
         Row: {
+          active_order_count: number
+          active_order_limit: number
+          approval_status: string
+          approved_at: string | null
           bank_account_holder: string | null
           bank_account_number: string | null
           bank_name: string | null
           branch_id: string | null
           created_at: string
           id: string
+          last_assignment_at: string | null
+          last_online_at: string | null
           name: string
           phone: string
+          profile_image_url: string | null
+          rating: number
+          rating_count: number
+          rejected_at: string | null
           status: string
+          suspended_at: string | null
+          suspended_until: string | null
+          suspension_reason: string | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
+          active_order_count?: number
+          active_order_limit?: number
+          approval_status?: string
+          approved_at?: string | null
           bank_account_holder?: string | null
           bank_account_number?: string | null
           bank_name?: string | null
           branch_id?: string | null
           created_at?: string
           id?: string
+          last_assignment_at?: string | null
+          last_online_at?: string | null
           name: string
           phone: string
+          profile_image_url?: string | null
+          rating?: number
+          rating_count?: number
+          rejected_at?: string | null
           status?: string
+          suspended_at?: string | null
+          suspended_until?: string | null
+          suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
+          active_order_count?: number
+          active_order_limit?: number
+          approval_status?: string
+          approved_at?: string | null
           bank_account_holder?: string | null
           bank_account_number?: string | null
           bank_name?: string | null
           branch_id?: string | null
           created_at?: string
           id?: string
+          last_assignment_at?: string | null
+          last_online_at?: string | null
           name?: string
           phone?: string
+          profile_image_url?: string | null
+          rating?: number
+          rating_count?: number
+          rejected_at?: string | null
           status?: string
+          suspended_at?: string | null
+          suspended_until?: string | null
+          suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -462,9 +705,12 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
+          icon_text: string | null
           is_available: boolean
           name: string
           price_cents: number
+          special_price_cents: number | null
+          burger_only_price_cents: number | null
           sort_order: number
           updated_at: string
           variant_label: string | null
@@ -475,9 +721,12 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          icon_text?: string | null
           is_available?: boolean
           name: string
           price_cents: number
+          special_price_cents?: number | null
+          burger_only_price_cents?: number | null
           sort_order?: number
           updated_at?: string
           variant_label?: string | null
@@ -488,9 +737,12 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          icon_text?: string | null
           is_available?: boolean
           name?: string
           price_cents?: number
+          special_price_cents?: number | null
+          burger_only_price_cents?: number | null
           sort_order?: number
           updated_at?: string
           variant_label?: string | null
@@ -501,6 +753,95 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          message_text: string
+          message_type: string
+          read_status: boolean
+          receiver_id: string
+          sender_id: string | null
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          message_text: string
+          message_type?: string
+          read_status?: boolean
+          receiver_id: string
+          sender_id?: string | null
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          message_text?: string
+          message_type?: string
+          read_status?: boolean
+          receiver_id?: string
+          sender_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          id: string
+          message: string
+          order_id: string | null
+          read_status: boolean
+          type: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          message: string
+          order_id?: string | null
+          read_status?: boolean
+          type: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          message?: string
+          order_id?: string | null
+          read_status?: boolean
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
@@ -563,17 +904,21 @@ export type Database = {
           delivery_notes: string | null
           delivery_status: string | null
           distance_km: number | null
+          driver_confirmed_at: string | null
           driver_id: string | null
           fulfillment: Database["public"]["Enums"]["fulfillment_type"]
           id: string
           order_number: string
+          payment_confirmed_at: string | null
           pickup_pin: string
           status: Database["public"]["Enums"]["order_status"]
+          submitted_to_champs_at: string | null
           subtotal_cents: number
           updated_at: string
           user_id: string | null
           verified_at: string | null
           verified_by: string | null
+          workflow_status: string
         }
         Insert: {
           branch_id: string
@@ -587,17 +932,21 @@ export type Database = {
           delivery_notes?: string | null
           delivery_status?: string | null
           distance_km?: number | null
+          driver_confirmed_at?: string | null
           driver_id?: string | null
           fulfillment: Database["public"]["Enums"]["fulfillment_type"]
           id?: string
           order_number?: string
+          payment_confirmed_at?: string | null
           pickup_pin: string
           status?: Database["public"]["Enums"]["order_status"]
+          submitted_to_champs_at?: string | null
           subtotal_cents: number
           updated_at?: string
           user_id?: string | null
           verified_at?: string | null
           verified_by?: string | null
+          workflow_status?: string
         }
         Update: {
           branch_id?: string
@@ -611,17 +960,21 @@ export type Database = {
           delivery_notes?: string | null
           delivery_status?: string | null
           distance_km?: number | null
+          driver_confirmed_at?: string | null
           driver_id?: string | null
           fulfillment?: Database["public"]["Enums"]["fulfillment_type"]
           id?: string
           order_number?: string
+          payment_confirmed_at?: string | null
           pickup_pin?: string
           status?: Database["public"]["Enums"]["order_status"]
+          submitted_to_champs_at?: string | null
           subtotal_cents?: number
           updated_at?: string
           user_id?: string | null
           verified_at?: string | null
           verified_by?: string | null
+          workflow_status?: string
         }
         Relationships: [
           {
@@ -723,6 +1076,41 @@ export type Database = {
             columns: ["branch_id"]
             isOneToOne: false
             referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      receipt_print_jobs: {
+        Row: {
+          created_at: string
+          id: string
+          order_id: string
+          printed_at: string | null
+          requested_by: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_id: string
+          printed_at?: string | null
+          requested_by?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_id?: string
+          printed_at?: string | null
+          requested_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "receipt_print_jobs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
@@ -887,6 +1275,23 @@ export type Database = {
       is_champs_owner_email: { Args: never; Returns: boolean }
       is_driver: { Args: { _user_id: string }; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      list_available_drivers: {
+        Args: { _latitude?: number; _longitude?: number }
+        Returns: {
+          distance_km: number
+          driver_id: string
+          name: string
+          phone: string
+          profile_image_url: string
+          rating: number
+          status: string
+          user_id: string
+        }[]
+      }
+      mark_conversation_read: {
+        Args: { _conversation_id: string }
+        Returns: undefined
+      }
       online_drivers_count: { Args: never; Returns: number }
       reject_driver_application: {
         Args: { _admin_notes?: string; _application_id: string }
@@ -895,20 +1300,57 @@ export type Database = {
           out_status: string
         }[]
       }
-      request_driver_application: {
+      request_driver_application:
+        | {
+            Args: {
+              _bank_account_holder?: string
+              _bank_account_number?: string
+              _bank_name?: string
+              _branch_id?: string
+              _name: string
+              _phone: string
+            }
+            Returns: {
+              out_application_id: string
+              out_status: string
+            }[]
+          }
+        | {
+            Args: {
+              _bank_account_holder?: string
+              _bank_account_number?: string
+              _bank_name?: string
+              _branch_id?: string
+              _id_number?: string
+              _name: string
+              _phone: string
+              _profile_photo_url?: string
+              _selfie_url?: string
+              _student_number?: string
+            }
+            Returns: {
+              out_application_id: string
+              out_status: string
+            }[]
+          }
+      review_driver_report: {
         Args: {
-          _bank_account_holder?: string
-          _bank_account_number?: string
-          _bank_name?: string
-          _branch_id?: string
-          _name: string
-          _phone: string
+          _driver_action?: string
+          _report_id: string
+          _resolution?: string
+          _status: string
         }
-        Returns: {
-          out_application_id: string
-          out_status: string
-        }[]
+        Returns: undefined
       }
+      suspend_driver_24h: {
+        Args: { _driver_id: string; _reason: string }
+        Returns: string
+      }
+      start_driver_admin_conversation: {
+        Args: { _driver_id: string }
+        Returns: string
+      }
+      start_order_conversation: { Args: { _order_id: string }; Returns: string }
       submit_delivery_payment: {
         Args: {
           _delivery_id: string
@@ -919,6 +1361,10 @@ export type Database = {
           out_delivery_id: string
           out_payment_status: string
         }[]
+      }
+      submit_order_to_champs: {
+        Args: { _order_id: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -931,6 +1377,9 @@ export type Database = {
         | "completed"
         | "cancelled"
         | "ready"
+        | "handed_to_driver"
+        | "picked_up"
+        | "on_the_way"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1067,6 +1516,9 @@ export const Constants = {
         "completed",
         "cancelled",
         "ready",
+        "handed_to_driver",
+        "picked_up",
+        "on_the_way",
       ],
     },
   },

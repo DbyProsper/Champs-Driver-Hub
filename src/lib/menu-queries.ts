@@ -12,6 +12,9 @@ export type MenuItem = {
   is_available: boolean;
   sort_order: number;
   image_url: string | null;
+  special_price_cents: number | null;
+  burger_only_price_cents: number | null;
+  icon_text: string | null;
 };
 
 

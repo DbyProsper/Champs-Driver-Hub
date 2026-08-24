@@ -11,6 +11,8 @@ export const LOCAL_IMAGE_SRC = {
   "chicken-chips": "/images/champs/chicken-chips.jpg",
   chef: "/images/champs/chef.jpg",
   couple: "/images/champs/couple.jpg",
+  "burger-card": "/images/champs/champs-burger.jpg",
+  "shakes-card": "/images/champs/champs-shakes.jpg",
   "champs-logo": "/images/champs/champs-logo.jpeg",
 } as const;
 
@@ -39,6 +41,8 @@ export const FALLBACK_MEDIA: MediaAsset[] = [
   { id: "fallback-chips", title: "Chicken and chips", image_key: "chicken-chips", src: LOCAL_IMAGE_SRC["chicken-chips"], alt: "Champs chicken served with chips", usage: "homepage-card", is_active: true, sort_order: 30, created_at: "", updated_at: "" },
   { id: "fallback-chef", title: "Champs chef", image_key: "chef", src: LOCAL_IMAGE_SRC.chef, alt: "Champs kitchen team member", usage: "brand", is_active: true, sort_order: 40, created_at: "", updated_at: "" },
   { id: "fallback-couple", title: "Customers eating together", image_key: "couple", src: LOCAL_IMAGE_SRC.couple, alt: "Customers enjoying a meal at Champs", usage: "brand", is_active: true, sort_order: 50, created_at: "", updated_at: "" },
+  { id: "fallback-burger", title: "Champs burger", image_key: "burger-card", src: LOCAL_IMAGE_SRC["burger-card"], alt: "Fresh Champs burger", usage: "homepage-card", is_active: true, sort_order: 45, created_at: "", updated_at: "" },
+  { id: "fallback-shakes", title: "Champs shakes", image_key: "shakes-card", src: LOCAL_IMAGE_SRC["shakes-card"], alt: "Cold Champs shakes", usage: "homepage-card", is_active: true, sort_order: 55, created_at: "", updated_at: "" },
   { id: "fallback-logo", title: "Champs logo", image_key: "champs-logo", src: LOCAL_IMAGE_SRC["champs-logo"], alt: "Champs Chicken logo", usage: "logo", is_active: true, sort_order: 60, created_at: "", updated_at: "" },
 ];
 

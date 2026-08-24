@@ -66,12 +66,20 @@
 
 @layer base {
   * { border-color: var(--color-border); }
-  html, body { background-color: var(--color-background); color: var(--color-foreground); }
+  html, body { max-width: 100%; overflow-x: clip; background-color: var(--color-background); color: var(--color-foreground); }
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  img, video, canvas, svg { max-width: 100%; }
+  input, select, textarea, button { min-width: 0; }
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
     letter-spacing: 0.02em;
   }
+}
+
+@media (max-width: 639px) {
+  [role="dialog"] { max-width: 100vw; }
+  table { font-size: 0.75rem; }
+  th, td { padding-left: 0.5rem; padding-right: 0.5rem; }
 }
 
 @utility bg-chalk {

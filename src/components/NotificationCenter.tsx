@@ -1,28 +1,40 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { fireNotification } from "@/lib/notifications";
 import { useNavigate } from "@tanstack/react-router";
+import { getAccessRole } from "@/lib/roles";
 
-type AppNotification = { id: string; type: string; message: string; order_id: string | null; read_status: boolean; created_at: string };
+type AppNotification = { id: string; type: string; message: string; order_id: string | null; conversation_id: string | null; read_status: boolean; created_at: string };
 
 export function NotificationCenter() {
   const navigate = useNavigate();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const unread = items.filter((item) => !item.read_status).length;
 
   const load = useCallback(async () => {
     const { data: authData } = await supabase.auth.getUser();
     setUserId(authData.user?.id ?? null);
     if (!authData.user) { setItems([]); return; }
-    const { data } = await (supabase as any).from("notifications").select("id,type,message,order_id,read_status,created_at").eq("user_id", authData.user.id).order("created_at", { ascending: false }).limit(50);
+    setRole(await getAccessRole(authData.user.id));
+    const { data } = await (supabase as any).from("notifications").select("id,type,message,order_id,conversation_id,read_status,created_at").eq("user_id", authData.user.id).order("created_at", { ascending: false }).limit(50);
     setItems((data ?? []) as AppNotification[]);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
   useEffect(() => {
     if (!userId) return;
     const channel = supabase.channel(`notifications:${userId}`)
@@ -49,6 +61,27 @@ export function NotificationCenter() {
       setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, read_status: true } : entry));
     }
     setOpen(false);
+    if (role === "driver") {
+      if (item.conversation_id) {
+        sessionStorage.setItem("champs-open-conversation", item.conversation_id);
+        window.dispatchEvent(new CustomEvent("champs-open-conversation", { detail: item.conversation_id }));
+      }
+      navigate({ to: "/driver" });
+      return;
+    }
+    if ((role === "admin" || role === "staff") && item.type === "new_message") {
+      if (item.conversation_id) sessionStorage.setItem("champs-admin-open-conversation", item.conversation_id);
+      navigate({ to: "/admin/messages" });
+      return;
+    }
+    if ((role === "admin" || role === "staff") && (item.type === "driver_report" || item.type === "complaint_update")) {
+      navigate({ to: "/admin/complaints" });
+      return;
+    }
+    if (item.type === "complaint_update") {
+      navigate({ to: "/profile", hash: "complaints" });
+      return;
+    }
     if (!item.order_id) return;
     const { data: order } = await supabase.from("orders").select("order_number").eq("id", item.order_id).maybeSingle();
     if (order?.order_number) navigate({ to: "/order/$number", params: { number: order.order_number } });
@@ -56,7 +89,7 @@ export function NotificationCenter() {
 
   if (!userId) return null;
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button type="button" onClick={() => setOpen((value) => !value)} className="relative grid h-8 w-8 place-items-center rounded-full border bg-card" aria-label={`${unread} unread notifications`}>
         <Bell className="h-4 w-4" />
         {unread > 0 && <span className="absolute -right-1 -top-1 grid min-h-4 min-w-4 place-items-center rounded-full bg-brand px-1 text-[9px] font-bold text-brand-foreground">{unread > 99 ? "99+" : unread}</span>}

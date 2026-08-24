@@ -81,12 +81,11 @@ export async function getAccessRole(userId?: string | null): Promise<AccessRole>
 
     const found = (roles ?? []).map((role) => normalizeRole(role.role)).filter(Boolean) as AccessRole[];
     const databaseRole = normalizeRole(myRole);
-    const metadataRole = normalizeRole(user?.app_metadata?.role ?? user?.user_metadata?.role);
-    const metadataRoles = (user?.app_metadata?.roles ?? user?.user_metadata?.roles ?? []) as unknown[];
+    const metadataRole = normalizeRole(user?.app_metadata?.role);
+    const metadataRoles = (user?.app_metadata?.roles ?? []) as unknown[];
     const metadataRoleFromArray = metadataRoles.map((role) => normalizeRole(role)).find(Boolean);
     const metadataFlags = [
       user?.app_metadata?.is_admin,
-      user?.user_metadata?.is_admin,
     ];
     const isAdminByMetadata = metadataFlags.some((value) => value === true || value === "true" || value === "admin");
     const isAdminByEmail = adminEmails.length > 0 && email.length > 0 && adminEmails.includes(email);
