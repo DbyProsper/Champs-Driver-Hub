@@ -26,6 +26,7 @@ function MessagesPage() {
     setOrders((orderRows ?? []) as OrderChat[]);
   }, []);
   useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => data.user && (supabase as any).from("notifications").update({ read_status: true }).eq("user_id", data.user.id).eq("type", "new_message").eq("read_status", false));
     const stored = sessionStorage.getItem("champs-admin-open-conversation");
     if (stored) { sessionStorage.removeItem("champs-admin-open-conversation"); setNotificationConversationId(stored); }
     void load();

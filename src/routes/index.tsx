@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { MapPin, Clock, ChevronRight, Flame, Sparkles, Phone } from "lucide-react";
+import { MapPin, Clock, ChevronRight, Flame, Sparkles, Phone, Mail, Facebook, Instagram } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
 import { Footer } from "@/components/Footer";
@@ -56,7 +56,7 @@ function Home() {
         <div className="absolute inset-0 bg-gradient-to-br from-[#1a0708]/95 via-[#2b0a0c]/80 to-brand/60 mix-blend-multiply" aria-hidden />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,transparent_20%,rgba(0,0,0,0.75)_85%)]" aria-hidden />
 
-        <div className="relative mx-auto flex w-full max-w-lg flex-col justify-end px-5 py-12 sm:py-16">
+        <div className="relative z-10 mx-auto flex w-full max-w-lg flex-col justify-end px-5 py-12 sm:py-16">
           <div className="flex items-center gap-2 text-white/90 text-[11px] font-bold uppercase tracking-widest">
             <Flame className="h-3.5 w-3.5 text-brand" /> {settings.hero_eyebrow}
           </div>
@@ -78,6 +78,7 @@ function Home() {
             </Link>
           </div>
         </div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-background" aria-hidden />
       </section>
 
       {/* Promotions strip */}
@@ -89,18 +90,19 @@ function Home() {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
             {branchPromos.map((p) => (
-              <Link key={p.id} to="/menu" hash="promos" className="shrink-0 w-64 rounded-2xl border border-border bg-card p-4 relative overflow-hidden">
+              <Link key={p.id} to="/menu" hash="promos" aria-label={`View ${p.title} in the menu`} className="shrink-0 w-64 overflow-hidden rounded-2xl border border-border bg-card relative">
+                {p.image_url ? <img src={p.image_url} alt={p.title} className="aspect-[16/10] w-full object-cover transition-transform hover:scale-105" /> : <div className="p-4">
                 {p.badge && (
                   <div className="absolute top-3 right-3 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-brand-foreground uppercase tracking-wider">
                     {p.badge}
                   </div>
                 )}
-                {p.image_url && <img src={p.image_url} alt={p.title} className="mb-3 h-24 w-full rounded-lg object-cover" />}
                 <div className="font-display text-xl">{p.title}</div>
                 {p.description && <div className="mt-1 text-xs text-muted-foreground line-clamp-2">{p.description}</div>}
                 {p.price_cents != null && (
                   <div className="mt-2 font-display text-2xl text-brand">{formatZAR(p.price_cents)}</div>
                 )}
+                </div>}
               </Link>
             ))}
           </div>
@@ -138,21 +140,19 @@ function Home() {
       </section>}
 
       {active?.city?.toLowerCase().includes("fort beaufort") && <section className="mx-auto max-w-lg px-5 pt-6">
-        <a href="https://www.panarottis.com/za/restaurants/eastern-cape/panarottis-express-fort-beaufort" target="_blank" rel="noreferrer" className="block rounded-2xl border bg-card p-5 transition-colors hover:border-brand">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-brand">Also in Fort Beaufort</div>
-          <div className="mt-1 font-display text-3xl">Panarottis Express specials</div>
-          <p className="mt-2 text-sm text-muted-foreground">View current offers and restaurant information on the official Panarottis Fort Beaufort website.</p>
-          <div className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-brand">Open Panarottis <ChevronRight className="h-4 w-4" /></div>
+        <a href="https://www.panarottis.com/za/restaurants/eastern-cape/panarottis-express-fort-beaufort" target="_blank" rel="noreferrer" className="group relative block min-h-56 overflow-hidden rounded-2xl border bg-card bg-cover bg-center p-5 text-white transition-colors hover:border-brand" style={{ backgroundImage: "url('/images/champs/panarottis-fort-beaufort.png')" }}>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
+          <div className="relative flex min-h-48 flex-col justify-end"><div className="text-[10px] font-bold uppercase tracking-widest text-white/80">Also in Fort Beaufort</div><div className="mt-1 font-display text-3xl">Panarottis Express specials</div><div className="mt-2 inline-flex items-center gap-1 text-sm font-bold">Open Panarottis <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></div></div>
         </a>
       </section>}
 
       {/* Brand strip */}
       {settings.show_brand_strip && <section className="mx-auto max-w-lg px-5 pt-6">
         <div className="grid grid-cols-2 gap-3">
-          <img src={imageSrcFor("couple", media, "couple")} alt="Customers enjoying Champs" className="rounded-2xl aspect-square object-cover" />
-          <img src={imageSrcFor("chef", media, "chef")} alt="Champs chef" className="rounded-2xl aspect-square object-cover" />
+          <img src={imageSrcFor((settings as any).brand_left_image_key ?? "couple", media, "couple")} alt="Customers enjoying Champs" className="rounded-2xl aspect-square object-cover" />
+          <img src={imageSrcFor((settings as any).brand_right_image_key ?? "chef", media, "chef")} alt="Champs team" className="rounded-2xl aspect-square object-cover" />
         </div>
-        <p className="mt-3 text-center font-display text-2xl text-brand">We love to serve.</p>
+        <p className="mt-3 text-center font-display text-2xl text-brand">{(settings as any).brand_tagline ?? "We love to serve."}</p>
       </section>}
 
       {/* Store info per active branch */}
@@ -184,6 +184,8 @@ function Home() {
               <a href={`tel:${active.phone}`} className="text-sm font-semibold">{active.phone}</a>
             </div>
           )}
+          {active?.email && <div className="flex items-start gap-3"><Mail className="mt-0.5 h-5 w-5 shrink-0 text-brand" /><a href={`mailto:${active.email}`} className="text-sm font-semibold">{active.email}</a></div>}
+          {(active?.facebook_url || active?.instagram_url) && <div className="flex gap-2">{active.facebook_url && <a href={active.facebook_url} target="_blank" rel="noreferrer" aria-label={`${active.name} Facebook`} className="grid h-9 w-9 place-items-center rounded-full border"><Facebook className="h-4 w-4" /></a>}{active.instagram_url && <a href={active.instagram_url} target="_blank" rel="noreferrer" aria-label={`${active.name} Instagram`} className="grid h-9 w-9 place-items-center rounded-full border"><Instagram className="h-4 w-4" /></a>}</div>}
         </div>
       </section>}
 

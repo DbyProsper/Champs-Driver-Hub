@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plus, Trash2, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Sparkles, Image as ImageIcon, X, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
 import { logAdminAction } from "@/lib/audit";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import { useQueryClient } from "@tanstack/react-query";
+import { mergePublicMenuMedia } from "@/lib/public-menu-media";
+import type { MediaAsset } from "@/lib/site-content";
 
 export const Route = createFileRoute("/_authenticated/admin/promotions")({
   head: () => ({ meta: [{ title: "Promotions — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -37,14 +39,19 @@ function PromoAdmin() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [dirty, setDirty] = useState<Record<string, Partial<Promo>>>({});
   const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "" });
+  const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [pickerFor, setPickerFor] = useState<"new" | string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
 
   async function load() {
-    const [p, b] = await Promise.all([
+    const [p, b, m] = await Promise.all([
       supabase.from("promotions").select("*").order("sort_order"),
       supabase.from("branches").select("id, name, city").order("sort_order"),
+      supabase.from("media_assets").select("*").order("sort_order"),
     ]);
     setPromos((p.data as Promo[]) ?? []);
     setBranches((b.data as Branch[]) ?? []);
+    setMedia(mergePublicMenuMedia((m.data as MediaAsset[]) ?? []));
   }
   useEffect(() => { load(); }, []);
 
@@ -114,7 +121,9 @@ function PromoAdmin() {
       branch_id: newP.branch_id || null,
       day_of_week: newP.day_of_week === "" ? null : Number(newP.day_of_week),
     };
+    setBusyAction("create");
     const { data, error } = await supabase.from("promotions").insert(payload).select("*").single();
+    setBusyAction(null);
     if (error) { toast.error(error.message); return; }
     await syncPromoMenuItem(data as Promo);
     toast.success("Promo created");
@@ -126,7 +135,9 @@ function PromoAdmin() {
   async function remove(id: string) {
     if (!confirm("Delete this promo?")) return;
     const promo = promos.find((item) => item.id === id);
+    setBusyAction(`delete-${id}`);
     const { error } = await supabase.from("promotions").delete().eq("id", id);
+    setBusyAction(null);
     if (error) toast.error(error.message);
     else {
       if (promo?.title) {
@@ -162,7 +173,7 @@ function PromoAdmin() {
             <input className="rounded-md border px-3 py-2 text-sm" placeholder="Title (e.g. Wednesday Special)" value={newP.title} onChange={(e) => setNewP({ ...newP, title: e.target.value })} />
             <input className="rounded-md border px-3 py-2 text-sm" placeholder="Badge (e.g. WED)" value={newP.badge} onChange={(e) => setNewP({ ...newP, badge: e.target.value })} />
             <input className="rounded-md border px-3 py-2 text-sm sm:col-span-2" placeholder="Description" value={newP.description} onChange={(e) => setNewP({ ...newP, description: e.target.value })} />
-            <input className="rounded-md border px-3 py-2 text-sm" placeholder="Image URL (optional)" value={newP.image_url} onChange={(e) => setNewP({ ...newP, image_url: e.target.value })} />
+            <button type="button" onClick={() => setPickerFor("new")} className="inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {newP.image_url ? "Change promo image" : "Choose promo image"}</button>
             <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_from} onChange={(e) => setNewP({ ...newP, active_from: e.target.value })} />
             <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_until} onChange={(e) => setNewP({ ...newP, active_until: e.target.value })} />
             <input type="number" step="0.01" className="rounded-md border px-3 py-2 text-sm" placeholder="Price (R, optional)" value={newP.price_cents} onChange={(e) => setNewP({ ...newP, price_cents: e.target.value })} />
@@ -175,7 +186,7 @@ function PromoAdmin() {
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
           </div>
-          <button onClick={create} className="mt-3 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">Create promo</button>
+          <button onClick={create} disabled={busyAction === "create"} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{busyAction === "create" && <Loader2 className="h-4 w-4 animate-spin" />}Create promo</button>
         </section>
 
         {/* Existing */}
@@ -203,7 +214,7 @@ function PromoAdmin() {
                   </div>
                   <textarea className="mt-2 w-full rounded-md border px-2 py-1.5 text-sm" rows={2} value={cur.description ?? ""} onChange={(e) => edit(p.id, { description: e.target.value || null })} placeholder="Description" />
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                    <input className="rounded-md border px-2 py-1.5 text-sm" value={cur.image_url ?? ""} onChange={(e) => edit(p.id, { image_url: e.target.value || null })} placeholder="Image URL" />
+                    <button type="button" onClick={() => setPickerFor(p.id)} className="inline-flex items-center justify-center gap-2 rounded-md border px-2 py-1.5 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {cur.image_url ? "Change image" : "Choose image"}</button>
                     <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_from ? cur.active_from.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_from: e.target.value ? new Date(e.target.value).toISOString() : null })} />
                     <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_until ? cur.active_until.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_until: e.target.value ? new Date(e.target.value).toISOString() : null })} />
                   </div>
@@ -220,6 +231,7 @@ function PromoAdmin() {
           </div>
         </section>
       </div>
+      {pickerFor && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4" onClick={() => setPickerFor(null)}><div className="w-full max-w-3xl rounded-2xl bg-background p-4" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h2 className="font-display text-2xl text-brand">Choose promo image</h2><button onClick={() => setPickerFor(null)} className="grid h-9 w-9 place-items-center rounded-full border"><X className="h-4 w-4" /></button></div><div className="mt-3 grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-4">{media.map((asset) => <button key={asset.id} onClick={() => { if (pickerFor === "new") setNewP((current) => ({ ...current, image_url: asset.src })); else edit(pickerFor, { image_url: asset.src }); setPickerFor(null); }} className="overflow-hidden rounded-xl border text-left"><img src={asset.src} alt={asset.alt} className="aspect-square w-full object-cover" /><div className="truncate p-2 text-xs font-semibold">{asset.title}</div></button>)}</div></div></div>}
     </div>
   );
 }

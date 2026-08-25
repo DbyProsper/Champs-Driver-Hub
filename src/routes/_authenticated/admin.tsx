@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp, Printer, Flag, LockKeyhole, Menu as MenuIcon, X } from "lucide-react";
+import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp, Printer, Flag, LockKeyhole, Menu as MenuIcon, X, Loader2 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
@@ -16,6 +16,7 @@ import { NotificationCenter } from "@/components/NotificationCenter";
 import { ChatDialog } from "@/components/ChatDialog";
 import { printOrderReceipt } from "@/lib/receipt";
 import { sendOrderEventEmail } from "@/lib/order-email";
+import { UnreadNavigationBadge } from "@/components/UnreadNavigationBadge";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -205,12 +206,22 @@ function Admin() {
 
   useEffect(() => {
     if (!role) return;
+    let active = true;
+    const printPendingJobs = async () => {
+      const { data } = await (supabase as any).from("receipt_print_jobs").select("id,order_id").eq("status", "pending").order("created_at");
+      if (!active) return;
+      for (const job of data ?? []) {
+        try { await printOrderReceipt(job.order_id, job.id); }
+        catch (error: any) { toast.error(error.message ?? "Kitchen receipt could not print"); break; }
+      }
+    };
+    void printPendingJobs();
     const channel = supabase.channel("receipt-print-jobs-admin")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "receipt_print_jobs" }, (payload) => {
         const job = payload.new as { id: string; order_id: string };
         void printOrderReceipt(job.order_id, job.id).catch((error) => toast.error(error.message));
       }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, [role]);
 
   async function updateStatus(id: string, status: Order["status"]) {
@@ -433,8 +444,8 @@ function Admin() {
                 <Link to="/admin/audit-trail" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}>
                   <ShieldCheck className="h-4 w-4" /> {!sidebarCollapsed && "Audit Trail"}
                 </Link>
-                <Link to="/admin/messages" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><MessageCircle className="h-4 w-4" /> {!sidebarCollapsed && "Driver Messages"}</Link>
-                <Link to="/admin/complaints" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><Flag className="h-4 w-4" /> {!sidebarCollapsed && "Complaints"}</Link>
+                <Link to="/admin/messages" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><MessageCircle className="h-4 w-4" /> {!sidebarCollapsed && "Driver Messages"}<UnreadNavigationBadge types={["new_message"]} /></Link>
+                <Link to="/admin/complaints" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><Flag className="h-4 w-4" /> {!sidebarCollapsed && "Complaints"}<UnreadNavigationBadge types={["complaint_update", "driver_report"]} /></Link>
                 <Link to="/admin/security" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><LockKeyhole className="h-4 w-4" /> {!sidebarCollapsed && "Security"}</Link>
               </nav>
             </div>
@@ -546,7 +557,7 @@ function OrderCard({
   order: o, items, branchName, branchPhone, deliveryStatus, deliveryDriverId, driverName, onUpdateStatus, onVerify, onPrint,
 }: {
   order: Order; items: ItemRow[]; branchName: string; branchPhone: string | null; deliveryStatus?: string | null; deliveryDriverId?: string | null; driverName?: string;
-  onUpdateStatus: (id: string, s: Order["status"]) => void;
+  onUpdateStatus: (id: string, s: Order["status"]) => Promise<void>;
   onVerify: (o: Order, pin: string) => void;
   onPrint: (id: string) => void;
 }) {
@@ -561,6 +572,13 @@ function OrderCard({
   const shouldShowNext = !(o.fulfillment === "delivery" && (effectiveStatus === "completed" || effectiveStatus === "cancelled"));
   const [pinInput, setPinInput] = useState("");
   const [showVerify, setShowVerify] = useState(false);
+  const [statusBusy, setStatusBusy] = useState<string | null>(null);
+
+  async function changeStatus(status: Order["status"]) {
+    if (statusBusy) return;
+    setStatusBusy(status);
+    try { await onUpdateStatus(o.id, status); } finally { setStatusBusy(null); }
+  }
 
   const waHref = waLink(o.customer_phone, orderStatusMessage(o.order_number, effectiveStatus, o.customer_name));
 
@@ -643,21 +661,21 @@ function OrderCard({
             <MessageCircle className="h-3 w-3" /> WA
           </a>
           {effectiveStatus !== "cancelled" && effectiveStatus !== "completed" && (
-            <button onClick={() => onUpdateStatus(o.id, "cancelled")} className="rounded-full border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-brand">
-              Cancel
+            <button disabled={!!statusBusy} onClick={() => void changeStatus("cancelled")} className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-brand disabled:opacity-60">
+              {statusBusy === "cancelled" && <Loader2 className="h-3 w-3 animate-spin" />}Cancel
             </button>
           )}
           {next && shouldShowNext && (
             <button
-              onClick={() => onUpdateStatus(o.id, next)}
-              disabled={next === "handed_to_driver" && !deliveryDriverId}
+              onClick={() => void changeStatus(next)}
+              disabled={!!statusBusy || (next === "handed_to_driver" && !deliveryDriverId)}
               title={next === "handed_to_driver" && !deliveryDriverId ? "Assign a driver before handing to driver" : undefined}
               className={
                 "rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground hover:bg-brand-dark " +
                 (next === "handed_to_driver" && !deliveryDriverId ? "opacity-50 cursor-not-allowed" : "")
               }
             >
-              → {nextLabel}
+              {statusBusy === next ? <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Saving…</span> : <>→ {nextLabel}</>}
             </button>
           )}
         </div>

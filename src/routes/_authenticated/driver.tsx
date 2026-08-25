@@ -10,6 +10,7 @@ import { DriverPageSkeleton } from "@/components/Loader";
 import { fireNotification, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
 import { ChatDialog } from "@/components/ChatDialog";
 import { NotificationCenter } from "@/components/NotificationCenter";
+import { UnreadNavigationBadge } from "@/components/UnreadNavigationBadge";
 import { sendOrderEventEmail } from "@/lib/order-email";
 import { SA_BANKS } from "@/lib/sa-banks";
 import { PasswordChangeForm } from "@/components/PasswordChangeForm";
@@ -77,8 +78,15 @@ function DriverPage() {
   const [proofUrls, setProofUrls] = useState<Record<string, string>>({});
   const [showHelp, setShowHelp] = useState(false);
   const [notificationConversationId, setNotificationConversationId] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
   const seenDeliveryIds = useRef<Set<string> | null>(null);
   const previousDeliveryStatuses = useRef<Record<string, string>>({});
+
+  async function runAction(key: string, action: () => Promise<unknown>) {
+    if (actionBusy) return;
+    setActionBusy(key);
+    try { await action(); } finally { setActionBusy(null); }
+  }
 
   useEffect(() => {
     const stored = sessionStorage.getItem("champs-open-conversation");
@@ -431,15 +439,15 @@ function DriverPage() {
       <header className="sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <Link to="/" className="font-display text-xl text-brand inline-flex items-center gap-2">
-            <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
+            <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-brand"><img src="/images/champs/driver-delivery-icon.png" alt="Champs delivery driver" className="h-8 w-8 object-contain invert" /></span>
             <span>Driver</span>
           </Link>
           <div className="flex items-center gap-2">
             <NotificationCenter />
-            {driver && <ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" />}
+            {driver && <div className="relative"><ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" /><span className="absolute -right-2 -top-2"><UnreadNavigationBadge types={["new_message"]} /></span></div>}
             <button type="button" onClick={() => setShowHelp(true)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label="How driver orders work"><CircleHelp className="h-4 w-4" /></button>
-            <button onClick={toggleStatus} className={"rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider " + (driver?.status === "active" ? "bg-emerald-600 text-white" : "border bg-background text-muted-foreground")}>
-              {driver?.status === "active" ? "Online" : "Offline"}
+            <button disabled={!!actionBusy} onClick={() => void runAction("status", toggleStatus)} className={"inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider disabled:opacity-60 " + (driver?.status === "active" ? "bg-emerald-600 text-white" : "border bg-background text-muted-foreground")}>
+              {actionBusy === "status" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{driver?.status === "active" ? "Online" : "Offline"}
             </button>
             <button onClick={() => void load()} className="grid h-8 w-8 place-items-center rounded-full border"><RefreshCw className="h-3.5 w-3.5" /></button>
             <button onClick={signOut} className="grid h-8 w-8 place-items-center rounded-full border"><LogOut className="h-3.5 w-3.5" /></button>
@@ -610,7 +618,7 @@ function DriverPage() {
               )}
 
                 {tab === "available" ? (
-                <div className="grid grid-cols-2 gap-2"><button onClick={() => accept(d)} className="rounded-xl bg-brand py-3 text-sm font-bold text-brand-foreground">Accept order</button><button onClick={() => reject(d)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 py-3 text-sm font-bold text-destructive"><XCircle className="h-4 w-4" /> Reject</button></div>
+                <div className="grid grid-cols-2 gap-2"><button disabled={!!actionBusy} onClick={() => void runAction(`accept-${d.id}`, () => accept(d))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-brand-foreground disabled:opacity-60">{actionBusy === `accept-${d.id}` && <Loader2 className="h-4 w-4 animate-spin" />}Accept order</button><button disabled={!!actionBusy} onClick={() => void runAction(`reject-${d.id}`, () => reject(d))} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 py-3 text-sm font-bold text-destructive disabled:opacity-60">{actionBusy === `reject-${d.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject</button></div>
               ) : tab === "active" && d.status !== "delivered" ? (
                 d.status === "cancelled" ? (
                   <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-3 text-sm font-semibold text-destructive">This delivery was cancelled. No further actions are available.</div>
@@ -618,22 +626,22 @@ function DriverPage() {
                   <div className="space-y-2">
                     {o && <ChatDialog orderId={o.id} quickReplies={["I have submitted your order", "Your order is ready", "I’m on my way", "I’m outside"]} label="Chat with customer" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-bold" />}
                     {d.payment_status === "pending" && (
-                      <button onClick={() => confirmPayment(d.id)} className="w-full rounded-xl border border-emerald-600 px-3 py-3 text-sm font-bold text-emerald-700 inline-flex items-center justify-center gap-2">
-                        <CheckCircle2 className="h-4 w-4" /> Confirm payment received
+                      <button disabled={!!actionBusy} onClick={() => void runAction(`payment-${d.id}`, () => confirmPayment(d.id))} className="w-full rounded-xl border border-emerald-600 px-3 py-3 text-sm font-bold text-emerald-700 inline-flex items-center justify-center gap-2 disabled:opacity-60">
+                        {actionBusy === `payment-${d.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirm payment received
                       </button>
                     )}
                     {o?.workflow_status === "accepted_by_driver" && (!o.driver_confirmed_at || !o.payment_confirmed_at) && (
-                      <button onClick={() => confirmOrderAndPayment(o.id)} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-600 px-3 py-3 text-sm font-bold text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Confirm order & payment</button>
+                      <button disabled={!!actionBusy} onClick={() => void runAction(`confirm-${o.id}`, () => confirmOrderAndPayment(o.id))} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-600 px-3 py-3 text-sm font-bold text-emerald-700 disabled:opacity-60">{actionBusy === `confirm-${o.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirm order & payment</button>
                     )}
                     {o?.workflow_status === "accepted_by_driver" && o.driver_confirmed_at && o.payment_confirmed_at && (
-                      <button onClick={() => submitToChamps(d)} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-3 py-3 text-sm font-bold text-background"><Package className="h-4 w-4" /> Submit to Champs</button>
+                      <button disabled={!!actionBusy} onClick={() => void runAction(`submit-${d.id}`, () => submitToChamps(d))} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-3 py-3 text-sm font-bold text-background disabled:opacity-60">{actionBusy === `submit-${d.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />} Submit to Champs</button>
                     )}
                     <button
-                      onClick={() => nextStatus(d)}
-                      disabled={d.status !== "handed_to_driver" && d.status !== "picked_up" && d.status !== "on_the_way"}
+                      onClick={() => void runAction(`next-${d.id}`, () => nextStatus(d))}
+                      disabled={!!actionBusy || (d.status !== "handed_to_driver" && d.status !== "picked_up" && d.status !== "on_the_way")}
                       className="w-full rounded-xl bg-brand py-3 text-sm font-bold text-brand-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {d.status === "handed_to_driver" ? "Mark picked up" : d.status === "picked_up" ? "Start delivery" : d.status === "on_the_way" ? "Mark delivered" : "Waiting for handoff"}
+                      {actionBusy === `next-${d.id}` ? <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Updating…</span> : d.status === "handed_to_driver" ? "Mark picked up" : d.status === "picked_up" ? "Start delivery" : d.status === "on_the_way" ? "Mark delivered" : "Waiting for handoff"}
                     </button>
                   </div>
                 )

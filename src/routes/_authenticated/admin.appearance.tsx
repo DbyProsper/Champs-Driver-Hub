@@ -21,6 +21,11 @@ const CATEGORY_CARDS = [
   { key: "burger-card", label: "Burgers", fallback: "burger-card" as const },
   { key: "shakes-card", label: "Shakes", fallback: "shakes-card" as const },
 ];
+const BRAND_CARDS = [
+  { key: "couple", label: "Left brand image", fallback: "couple" as const },
+  { key: "chef", label: "Right brand image", fallback: "chef" as const },
+];
+type EditableBranch = { id: string; name: string; address: string; city: string; postal_code: string; phone: string | null; whatsapp: string | null; email: string | null; facebook_url: string | null; instagram_url: string | null };
 
 function AppearanceAdmin() {
   const queryClient = useQueryClient();
@@ -30,14 +35,18 @@ function AppearanceAdmin() {
   const [newAsset, setNewAsset] = useState({ title: "", image_key: "", src: "", alt: "", usage: "general" });
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [settingsDirty, setSettingsDirty] = useState(false);
+  const [branches, setBranches] = useState<EditableBranch[]>([]);
+  const [branchDirty, setBranchDirty] = useState<Record<string, Partial<EditableBranch>>>({});
 
   async function load() {
-    const [settingsResult, mediaResult] = await Promise.all([
+    const [settingsResult, mediaResult, branchResult] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", "main").maybeSingle(),
       supabase.from("media_assets").select("*").order("sort_order"),
+      (supabase as any).from("branches").select("id,name,address,city,postal_code,phone,whatsapp,email,facebook_url,instagram_url").order("sort_order"),
     ]);
     if (settingsResult.data) setSettings(settingsResult.data as SiteSettings);
     if (mediaResult.data) setMedia(mergePublicMenuMedia(mediaResult.data as MediaAsset[]));
+    setBranches((branchResult.data ?? []) as EditableBranch[]);
   }
 
   useEffect(() => { load(); }, []);
@@ -49,6 +58,10 @@ function AppearanceAdmin() {
     try {
       const { error } = await supabase.from("site_settings").upsert(settings);
       if (error) throw error;
+      for (const [id, patch] of Object.entries(branchDirty)) {
+        const { error: branchError } = await (supabase as any).from("branches").update(patch).eq("id", id);
+        if (branchError) throw branchError;
+      }
       toast.success("Appearance saved");
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       void logAdminAction({ action_type: "site_settings_updated", action_description: "Updated site appearance settings", target_type: "site_settings", target_id: "main", metadata: { settings } });
@@ -107,6 +120,7 @@ function AppearanceAdmin() {
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       await load();
       setSettingsDirty(false);
+      setBranchDirty({});
       toast.success(`${label} image updated on the homepage`);
     } catch (error: any) {
       toast.error(error.message ?? "Could not upload image");
@@ -142,6 +156,12 @@ function AppearanceAdmin() {
 
   function patchAsset(id: string, patch: Partial<MediaAsset>) {
     setMedia((current) => current.map((asset) => asset.id === id ? { ...asset, ...patch } : asset));
+  }
+
+  function patchBranch(id: string, patch: Partial<EditableBranch>) {
+    setBranches((current) => current.map((branch) => branch.id === id ? { ...branch, ...patch } : branch));
+    setBranchDirty((current) => ({ ...current, [id]: { ...current[id], ...patch } }));
+    setSettingsDirty(true);
   }
 
   return (
@@ -184,6 +204,18 @@ function AppearanceAdmin() {
               <Toggle label="Brand photo strip" checked={settings.show_brand_strip} onChange={(value) => patchSettings({ show_brand_strip: value })} />
               <Toggle label="Branch information" checked={settings.show_branch_info} onChange={(value) => patchSettings({ show_branch_info: value })} />
             </div>
+          </section>
+
+          <section className="rounded-2xl border bg-card p-4">
+            <h2 className="font-display text-2xl text-brand">Brand strip</h2>
+            <Field label="Text below images"><input value={(settings as any).brand_tagline ?? "We love to serve."} onChange={(event) => patchSettings({ brand_tagline: event.target.value } as any)} className="input" /></Field>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">{BRAND_CARDS.map((card) => <div key={card.key} className="rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={card.label} className="aspect-square w-full rounded-xl object-cover" /><label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Upload className="h-3.5 w-3.5" /> Change image<input type="file" accept="image/*" className="sr-only" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadCategoryImage(card.key, card.label, file); event.target.value=""; }} /></label></div>)}</div>
+          </section>
+
+          <section className="rounded-2xl border bg-card p-4">
+            <h2 className="font-display text-2xl text-brand">Branch contact details</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Each branch can have its own address, phone, WhatsApp, email and social pages.</p>
+            <div className="mt-3 space-y-3">{branches.map((branch) => <div key={branch.id} className="rounded-xl border p-3"><h3 className="font-semibold">{branch.name}</h3><div className="mt-2 grid gap-2 sm:grid-cols-2"><input className="input sm:col-span-2" value={branch.address} onChange={(e) => patchBranch(branch.id,{address:e.target.value})} placeholder="Address" /><input className="input" value={branch.phone ?? ""} onChange={(e) => patchBranch(branch.id,{phone:e.target.value||null})} placeholder="Phone" /><input className="input" value={branch.whatsapp ?? ""} onChange={(e) => patchBranch(branch.id,{whatsapp:e.target.value||null})} placeholder="WhatsApp" /><input type="email" className="input sm:col-span-2" value={branch.email ?? ""} onChange={(e) => patchBranch(branch.id,{email:e.target.value||null})} placeholder="Branch email" /><input className="input" value={branch.facebook_url ?? ""} onChange={(e) => patchBranch(branch.id,{facebook_url:e.target.value||null})} placeholder="Facebook URL" /><input className="input" value={branch.instagram_url ?? ""} onChange={(e) => patchBranch(branch.id,{instagram_url:e.target.value||null})} placeholder="Instagram URL" /></div></div>)}</div>
           </section>
 
           <section className="rounded-2xl border bg-card p-4">

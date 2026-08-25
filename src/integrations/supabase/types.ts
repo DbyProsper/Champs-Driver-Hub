@@ -20,6 +20,8 @@ export type Database = {
           action_type: string
           admin_id: string
           created_at: string
+          email: string | null
+          facebook_url: string | null
           id: string
           ip_address: string | null
           metadata: Json
@@ -61,6 +63,7 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
+          instagram_url: string | null
           latitude: number | null
           longitude: number | null
           name: string
@@ -76,8 +79,11 @@ export type Database = {
           city: string
           closes_at?: string
           created_at?: string
+          email?: string | null
+          facebook_url?: string | null
           id?: string
           is_active?: boolean
+          instagram_url?: string | null
           latitude?: number | null
           longitude?: number | null
           name: string
@@ -93,8 +99,11 @@ export type Database = {
           city?: string
           closes_at?: string
           created_at?: string
+          email?: string | null
+          facebook_url?: string | null
           id?: string
           is_active?: boolean
+          instagram_url?: string | null
           latitude?: number | null
           longitude?: number | null
           name?: string
@@ -1117,6 +1126,9 @@ export type Database = {
       }
       site_settings: {
         Row: {
+          brand_left_image_key: string
+          brand_right_image_key: string
+          brand_tagline: string
           hero_body: string
           hero_eyebrow: string
           hero_focus_x: number
@@ -1135,6 +1147,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          brand_left_image_key?: string
+          brand_right_image_key?: string
+          brand_tagline?: string
           hero_body?: string
           hero_eyebrow?: string
           hero_focus_x?: number
@@ -1153,6 +1168,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          brand_left_image_key?: string
+          brand_right_image_key?: string
+          brand_tagline?: string
           hero_body?: string
           hero_eyebrow?: string
           hero_focus_x?: number

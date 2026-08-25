@@ -103,10 +103,10 @@ function MenuAdmin() {
     else { toast.success("Deleted"); void logAdminAction({ action_type: "menu_item_deleted", action_description: "Deleted menu item", target_type: "menu_item", target_id: id }); load(); }
   }
 
-  function dropItem(target: Item) {
-    if (!draggedId || draggedId === target.id) return setDraggedId(null);
+  function moveDraggedItem(target: Item) {
+    if (!draggedId || draggedId === target.id) return;
     const dragged = items.find((item) => item.id === draggedId);
-    if (!dragged || dragged.category_id !== target.category_id) return setDraggedId(null);
+    if (!dragged || dragged.category_id !== target.category_id) return;
     const siblings = items.filter((item) => item.category_id === target.category_id).sort((a, b) => a.sort_order - b.sort_order);
     const from = siblings.findIndex((item) => item.id === draggedId);
     const to = siblings.findIndex((item) => item.id === target.id);
@@ -115,7 +115,6 @@ function MenuAdmin() {
     const order = new Map(reordered.map((item, index) => [item.id, (index + 1) * 10]));
     setItems((current) => current.map((item) => order.has(item.id) ? { ...item, sort_order: order.get(item.id)! } : item));
     setDirty((current) => ({ ...current, ...Object.fromEntries(reordered.map((item, index) => [item.id, { ...current[item.id], sort_order: (index + 1) * 10 }])) }));
-    setDraggedId(null);
   }
 
   async function addCategory() {
@@ -148,7 +147,7 @@ function MenuAdmin() {
         </div>
 
         {cats.map((c) => {
-          const catItems = items.filter((i) => i.category_id === c.id);
+          const catItems = items.filter((i) => i.category_id === c.id).sort((a, b) => a.sort_order - b.sort_order);
           const ni = newItem[c.id] ?? { name: "", variant: "", price: "" };
           return (
             <section key={c.id}>
@@ -160,7 +159,7 @@ function MenuAdmin() {
                   const auto = getMenuImageForItem(cur.name, cur.variant_label);
                   const imgSrc = cur.image_url || auto.src;
                   return (
-                    <div key={it.id} draggable onDragStart={() => setDraggedId(it.id)} onDragEnd={() => setDraggedId(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropItem(it)} className={`grid gap-3 p-3 sm:grid-cols-[auto_1fr_auto] sm:items-start ${draggedId === it.id ? "opacity-50" : ""}`}>
+                    <div key={it.id} data-menu-item-id={it.id} draggable onDragStart={(event) => { setDraggedId(it.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", it.id); }} onDragEnd={() => setDraggedId(null)} onDragEnter={(event) => { event.preventDefault(); moveDraggedItem(it); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={(event) => { event.preventDefault(); setDraggedId(null); }} className={`grid gap-3 p-3 transition-[transform,opacity,background-color] duration-150 sm:grid-cols-[auto_1fr_auto] sm:items-start ${draggedId === it.id ? "scale-[0.98] bg-brand/10 opacity-60 shadow-lg" : draggedId ? "bg-background" : ""}`}>
                       <div className="flex items-center gap-2 sm:flex-col">
                       <button
                         type="button"
@@ -173,7 +172,7 @@ function MenuAdmin() {
                           {cur.image_url ? "Custom" : "Auto"}
                         </span>
                       </button>
-                      <div className="inline-flex cursor-grab items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground"><GripVertical className="h-4 w-4" /> Drag</div>
+                      <button type="button" aria-label={`Drag ${cur.name} to reorder`} style={{ touchAction: "none" }} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setDraggedId(it.id); }} onPointerMove={(event) => { if (!draggedId) return; const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-menu-item-id]"); const target = row ? items.find((item) => item.id === row.dataset.menuItemId) : null; if (target) moveDraggedItem(target); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDraggedId(null); }} onPointerCancel={() => setDraggedId(null)} className="inline-flex cursor-grab select-none items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground active:cursor-grabbing"><GripVertical className="h-4 w-4" /> Drag</button>
                       </div>
                       <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                       <input

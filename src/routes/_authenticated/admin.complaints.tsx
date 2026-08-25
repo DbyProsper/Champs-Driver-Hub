@@ -64,6 +64,7 @@ function ComplaintsPage() {
   }, []);
 
   useEffect(() => {
+    void supabase.auth.getUser().then(({ data }) => data.user && (supabase as any).from("notifications").update({ read_status: true }).eq("user_id", data.user.id).in("type", ["complaint_update", "driver_report"]).eq("read_status", false));
     void load();
     const channel = supabase
       .channel("admin-complaints")

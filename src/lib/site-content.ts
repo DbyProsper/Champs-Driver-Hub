@@ -18,6 +18,9 @@ export const LOCAL_IMAGE_SRC = {
 
 export const FALLBACK_SETTINGS: SiteSettings = {
   id: "main",
+  brand_left_image_key: "couple",
+  brand_right_image_key: "chef",
+  brand_tagline: "We love to serve.",
   hero_eyebrow: "Now taking online orders",
   hero_line_one: "Crispy. Bold.",
   hero_line_two: "Champs Chicken.",

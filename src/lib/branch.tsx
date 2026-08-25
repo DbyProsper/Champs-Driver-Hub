@@ -10,6 +10,9 @@ export type Branch = {
   postal_code: string;
   phone: string | null;
   whatsapp: string | null;
+  email: string | null;
+  facebook_url: string | null;
+  instagram_url: string | null;
   latitude: number | null;
   longitude: number | null;
   opens_at: string;
