@@ -31,11 +31,13 @@ function Home() {
   const heroSrc = imageSrcFor(settings.hero_image_key, media, "girls-lunch");
   const headline = useTypewriter([settings.hero_line_one, settings.hero_line_two], { typeMs: 65, holdMs: 1600, eraseMs: 35 });
   const heroBody = settings.hero_body.replace("your town", active?.city ?? "your town");
+  const branchPromos = promos.filter((promo) => !promo.branch_id || promo.branch_id === active?.id);
 
   useEffect(() => {
     const channel = supabase.channel("homepage-appearance")
       .on("postgres_changes", { event: "*", schema: "public", table: "site_settings" }, () => void queryClient.invalidateQueries({ queryKey: ["site-content"] }))
       .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => void queryClient.invalidateQueries({ queryKey: ["site-content"] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "promotions" }, () => void queryClient.invalidateQueries({ queryKey: ["promotions"] }))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient]);
@@ -79,14 +81,14 @@ function Home() {
       </section>
 
       {/* Promotions strip */}
-      {settings.show_promotions && promos.length > 0 && (
+      {settings.show_promotions && branchPromos.length > 0 && (
         <section className="mx-auto max-w-lg px-5 pt-6">
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="h-4 w-4 text-brand" />
             <h2 className="font-display text-2xl">Today's specials</h2>
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
-            {promos.map((p) => (
+            {branchPromos.map((p) => (
               <Link key={p.id} to="/menu" hash="promos" className="shrink-0 w-64 rounded-2xl border border-border bg-card p-4 relative overflow-hidden">
                 {p.badge && (
                   <div className="absolute top-3 right-3 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-brand-foreground uppercase tracking-wider">
@@ -133,6 +135,15 @@ function Home() {
             </Link>
           ))}
         </div>
+      </section>}
+
+      {active?.city?.toLowerCase().includes("fort beaufort") && <section className="mx-auto max-w-lg px-5 pt-6">
+        <a href="https://www.panarottis.com/za/restaurants/eastern-cape/panarottis-express-fort-beaufort" target="_blank" rel="noreferrer" className="block rounded-2xl border bg-card p-5 transition-colors hover:border-brand">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-brand">Also in Fort Beaufort</div>
+          <div className="mt-1 font-display text-3xl">Panarottis Express specials</div>
+          <p className="mt-2 text-sm text-muted-foreground">View current offers and restaurant information on the official Panarottis Fort Beaufort website.</p>
+          <div className="mt-3 inline-flex items-center gap-1 text-sm font-bold text-brand">Open Panarottis <ChevronRight className="h-4 w-4" /></div>
+        </a>
       </section>}
 
       {/* Brand strip */}

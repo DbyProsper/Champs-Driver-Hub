@@ -1,1 +1,10 @@
-project_id = "wayhzjmtjxorhrzqqvrq"
+project_id = "mvjxxxgdyhxdtmzcikvu"
+
+[auth]
+site_url = "https://champs-driver-hub.vercel.app"
+additional_redirect_urls = [
+  "https://champs-driver-hub.vercel.app/**",
+  "http://localhost:8080/**",
+  "http://localhost:3000/**",
+  "http://localhost:4173/**"
+]

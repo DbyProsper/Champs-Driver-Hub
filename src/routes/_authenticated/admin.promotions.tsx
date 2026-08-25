@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
 import { logAdminAction } from "@/lib/audit";
+import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/_authenticated/admin/promotions")({
   head: () => ({ meta: [{ title: "Promotions — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -30,6 +32,7 @@ type Branch = { id: string; name: string; city: string };
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function PromoAdmin() {
+  const queryClient = useQueryClient();
   const [promos, setPromos] = useState<Promo[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [dirty, setDirty] = useState<Record<string, Partial<Promo>>>({});
@@ -81,19 +84,21 @@ function PromoAdmin() {
     }
   }
 
-  async function saveAll() {
+  async function saveAll(): Promise<boolean> {
     const entries = Object.entries(dirty);
-    if (entries.length === 0) return;
+    if (entries.length === 0) return true;
     for (const [id, patch] of entries) {
       const current = promos.find((item) => item.id === id);
       const { error } = await supabase.from("promotions").update(patch).eq("id", id);
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(error.message); return false; }
       if (current) await syncPromoMenuItem({ ...current, ...patch } as Promo);
     }
     void Promise.all(entries.map(([id, patch]) => logAdminAction({ action_type: "promotion_updated", action_description: `Updated promotion ${id}`, target_type: "promotion", target_id: id, metadata: { changes: patch } })));
     toast.success("Saved");
     setDirty({});
-    load();
+    await Promise.all([queryClient.invalidateQueries({ queryKey: ["promotions"] }), queryClient.invalidateQueries({ queryKey: ["menu"] })]);
+    await load();
+    return true;
   }
 
   async function create() {
@@ -136,6 +141,7 @@ function PromoAdmin() {
 
   return (
     <div className="min-h-screen bg-muted/40 pb-20">
+      <UnsavedChangesGuard dirty={Object.keys(dirty).length > 0} onSave={saveAll} />
       <header className="sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
           <Link to="/admin" className="inline-flex items-center gap-1 text-sm font-semibold"><ArrowLeft className="h-4 w-4" /> Orders</Link>

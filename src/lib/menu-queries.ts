@@ -29,4 +29,5 @@ export const menuQuery = queryOptions({
     if (items.error) throw items.error;
     return { categories: cats.data as Category[], items: items.data as MenuItem[] };
   },
+  staleTime: 0,
 });

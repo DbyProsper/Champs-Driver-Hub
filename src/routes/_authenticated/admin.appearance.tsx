@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { FALLBACK_MEDIA, FALLBACK_SETTINGS, imageSrcFor, type MediaAsset, type SiteSettings } from "@/lib/site-content";
 import { logAdminAction } from "@/lib/audit";
+import { mergePublicMenuMedia } from "@/lib/public-menu-media";
+import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 
 export const Route = createFileRoute("/_authenticated/admin/appearance")({
   head: () => ({ meta: [{ title: "Appearance — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -27,6 +29,7 @@ function AppearanceAdmin() {
   const [busy, setBusy] = useState(false);
   const [newAsset, setNewAsset] = useState({ title: "", image_key: "", src: "", alt: "", usage: "general" });
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [settingsDirty, setSettingsDirty] = useState(false);
 
   async function load() {
     const [settingsResult, mediaResult] = await Promise.all([
@@ -34,7 +37,7 @@ function AppearanceAdmin() {
       supabase.from("media_assets").select("*").order("sort_order"),
     ]);
     if (settingsResult.data) setSettings(settingsResult.data as SiteSettings);
-    if (mediaResult.data) setMedia(mediaResult.data as MediaAsset[]);
+    if (mediaResult.data) setMedia(mergePublicMenuMedia(mediaResult.data as MediaAsset[]));
   }
 
   useEffect(() => { load(); }, []);
@@ -103,6 +106,7 @@ function AppearanceAdmin() {
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       await load();
+      setSettingsDirty(false);
       toast.success(`${label} image updated on the homepage`);
     } catch (error: any) {
       toast.error(error.message ?? "Could not upload image");
@@ -111,8 +115,29 @@ function AppearanceAdmin() {
     }
   }
 
+  async function uploadLibraryImage(file: File) {
+    if (!file.type.startsWith("image/")) return toast.error("Choose an image file");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Image must be smaller than 5 MB");
+    setUploadingKey("library");
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+      const path = `library/${crypto.randomUUID()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage.from("site-assets").upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
+      const title = file.name.replace(/\.[^.]+$/, "");
+      const { error } = await supabase.from("media_assets").insert({ title, image_key: `library-${crypto.randomUUID()}`, src: data.publicUrl, alt: title, usage: "library", is_active: true, sort_order: media.length * 10 + 10 });
+      if (error) throw error;
+      await queryClient.invalidateQueries({ queryKey: ["site-content"] });
+      await load();
+      toast.success("Image uploaded to the library");
+    } catch (error: any) { toast.error(error.message ?? "Could not upload image"); }
+    finally { setUploadingKey(null); }
+  }
+
   function patchSettings(patch: Partial<SiteSettings>) {
     setSettings((current) => ({ ...current, ...patch }));
+    setSettingsDirty(true);
   }
 
   function patchAsset(id: string, patch: Partial<MediaAsset>) {
@@ -121,6 +146,7 @@ function AppearanceAdmin() {
 
   return (
     <div className="min-h-screen bg-muted/40 pb-20">
+      <UnsavedChangesGuard dirty={settingsDirty} onSave={async () => { await saveSettings(); return true; }} />
       <header className="sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <Link to="/admin" className="inline-flex items-center gap-1 text-sm font-semibold"><ArrowLeft className="h-4 w-4" /> Orders</Link>
@@ -171,6 +197,7 @@ function AppearanceAdmin() {
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand inline-flex items-center gap-2"><Image className="h-5 w-5" /> Media Library</h2>
             <p className="mt-1 text-xs text-muted-foreground">Images referenced here can be picked as the hero, homepage cards, or per-menu-item photos. Paste a path from <code>/images/champs/</code> or a full URL.</p>
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">{uploadingKey === "library" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload from device<input type="file" accept="image/*" className="sr-only" disabled={uploadingKey !== null} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLibraryImage(file); event.target.value = ""; }} /></label>
             <div className="mt-3 space-y-3">
               {media.map((asset) => {
                 const isHero = asset.image_key === settings.hero_image_key;

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Minus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
 import { menuQuery, type MenuItem } from "@/lib/menu-queries";
@@ -10,6 +11,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getMenuImageForItem } from "@/lib/menu-images";
 import { getMenuIconForItem, getCategoryIcon } from "@/lib/menu-icons";
+import { activePromotionsQuery } from "@/lib/user-queries";
+import { supabase } from "@/integrations/supabase/client";
+import { useBranch } from "@/lib/branch";
 
 export const Route = createFileRoute("/menu")({
   head: () => ({
@@ -28,15 +32,26 @@ export const Route = createFileRoute("/menu")({
 const SCROLL_OFFSET = 112;
 
 function MenuPage() {
-  const data = Route.useLoaderData();
+  const initialData = Route.useLoaderData();
+  const { data = initialData } = useQuery(menuQuery);
+  const { data: activePromos = [] } = useQuery(activePromotionsQuery);
+  const { active: activeBranch } = useBranch();
+  const queryClient = useQueryClient();
   const { categories, items } = data;
+  const activePromoTitles = useMemo(() => new Set(activePromos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id).map((promo) => promo.title.trim().toLowerCase())), [activePromos, activeBranch?.id]);
+  const visibleItems = useMemo(() => items.filter((item) => {
+    const category = categories.find((entry) => entry.id === item.category_id);
+    return category?.slug !== "promos" || activePromoTitles.has(item.name.trim().toLowerCase());
+  }), [items, categories, activePromoTitles]);
+  const hasVisiblePromos = visibleItems.some((item) => categories.find((category) => category.id === item.category_id)?.slug === "promos");
   const displayCategories = useMemo(() => {
     const hasSalads = categories.some((c) => c.slug === "salads" || c.name.toLowerCase().includes("salad"));
     const hasDrinks = categories.some((c) => c.slug === "drinks" || c.name.toLowerCase().includes("drink"));
     const hasExtras = categories.some((c) => c.slug === "extras" || c.name.toLowerCase().includes("extra"));
 
     let nextCategories = categories;
-    const promosCategory = categories.find((c) => c.slug === "promos");
+    const promosCategory = hasVisiblePromos ? categories.find((c) => c.slug === "promos") : undefined;
+    nextCategories = nextCategories.filter((category) => category.slug !== "promos");
     if (promosCategory) {
       nextCategories = [promosCategory, ...nextCategories.filter((c) => c.id !== promosCategory.id)];
     }
@@ -75,7 +90,7 @@ function MenuPage() {
     }
 
     return nextCategories;
-  }, [categories]);
+  }, [categories, hasVisiblePromos]);
 
   const [active, setActive] = useState(displayCategories[0]?.slug ?? "");
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -90,7 +105,7 @@ function MenuPage() {
     const drinkMatcher = /\b(?:pepsi|coke|mountain dew|powerade|spar letta|spar)\b/i;
     const bunMatcher = /\bbuns?\b/i;
 
-    for (const it of items) {
+    for (const it of visibleItems) {
       const combinedName = `${it.name} ${it.variant_label ?? ""}`;
 
       // Place Fish Burger explicitly into the Burgers section when present
@@ -125,7 +140,16 @@ function MenuPage() {
       if (cat && map[cat.slug]) map[cat.slug].push(it);
     }
     return map;
-  }, [displayCategories, categories, items]);
+  }, [displayCategories, categories, visibleItems]);
+
+  useEffect(() => {
+    const channel = supabase.channel("public-menu-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" }, () => void queryClient.invalidateQueries({ queryKey: ["menu"] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => void queryClient.invalidateQueries({ queryKey: ["menu"] }))
+      .on("postgres_changes", { event: "*", schema: "public", table: "promotions" }, () => void queryClient.invalidateQueries({ queryKey: ["promotions"] }))
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
 
   // Scroll-spy: pick the section whose top is closest to (but not past) the sticky-header line.
   useEffect(() => {

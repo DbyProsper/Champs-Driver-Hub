@@ -40,11 +40,14 @@ export const activePromotionsQuery = queryOptions({
       .or(`active_until.is.null,active_until.gte.${now}`)
       .order("sort_order");
     if (error) throw error;
+    const johannesburgDay = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).formatToParts(new Date()).find((part) => part.type === "weekday")?.value && new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).format(new Date()) ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).format(new Date())) : new Date().getDay());
     return (data ?? []).filter((promo: any) => {
       if (!promo.is_active) return false;
       if (promo.active_from && new Date(promo.active_from) > new Date()) return false;
       if (promo.active_until && new Date(promo.active_until) < new Date()) return false;
+      if (promo.day_of_week != null && promo.day_of_week !== johannesburgDay) return false;
       return true;
     });
   },
+  staleTime: 30_000,
 });
