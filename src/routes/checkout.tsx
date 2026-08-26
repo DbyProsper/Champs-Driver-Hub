@@ -122,7 +122,7 @@ function Checkout() {
     if (form.fulfillment !== "delivery" || !userId) { setDrivers([]); setSelectedDriverId(""); return; }
     let cancelled = false;
     (async () => {
-      const { data, error } = await (supabase.rpc as any)("list_available_drivers", { _latitude: coords?.lat ?? null, _longitude: coords?.lng ?? null });
+      const { data, error } = await (supabase.rpc as any)("list_available_drivers", { _latitude: coords?.lat ?? null, _longitude: coords?.lng ?? null, _branch_id: branch?.id ?? null });
       if (cancelled) return;
       if (error) { toast.error("Could not load drivers"); return; }
       const list = (data ?? []) as CheckoutDriver[];
@@ -135,7 +135,7 @@ function Checkout() {
       setSelectedDriverId((current) => list.some((driver) => driver.driver_id === current && driver.status === "online") ? current : (list.find((driver) => driver.status === "online")?.driver_id ?? ""));
     })();
     return () => { cancelled = true; };
-  }, [form.fulfillment, userId, coords?.lat, coords?.lng]);
+  }, [form.fulfillment, userId, coords?.lat, coords?.lng, branch?.id]);
 
   useEffect(() => {
     (async () => {

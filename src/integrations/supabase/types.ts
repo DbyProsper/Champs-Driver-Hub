@@ -1294,7 +1294,7 @@ export type Database = {
       is_driver: { Args: { _user_id: string }; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       list_available_drivers: {
-        Args: { _latitude?: number; _longitude?: number }
+        Args: { _branch_id?: string; _latitude?: number; _longitude?: number }
         Returns: {
           distance_km: number
           driver_id: string

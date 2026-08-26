@@ -90,8 +90,9 @@ function Home() {
           </div>
           <div className="flex gap-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
             {branchPromos.map((p) => (
-              <Link key={p.id} to="/menu" hash="promos" aria-label={`View ${p.title} in the menu`} className="shrink-0 w-64 overflow-hidden rounded-2xl border border-border bg-card relative">
-                {p.image_url ? <img src={p.image_url} alt={p.title} className="aspect-[16/10] w-full object-cover transition-transform hover:scale-105" /> : <div className="p-4">
+              <Link key={p.id} to="/menu" hash="promos" aria-label={`View ${p.title} in the menu`} className="group relative shrink-0 w-64 overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-brand hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand">
+                {p.image_url && <div className="relative aspect-square w-full overflow-hidden bg-muted"><img src={p.image_url} alt={p.title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" /><div className="absolute inset-x-3 bottom-3 flex translate-y-2 items-center justify-center rounded-full bg-brand/95 px-3 py-2 text-xs font-bold text-brand-foreground opacity-0 shadow transition-all group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">View special <ChevronRight className="ml-1 h-3.5 w-3.5" /></div></div>}
+                <div className="p-4">
                 {p.badge && (
                   <div className="absolute top-3 right-3 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-brand-foreground uppercase tracking-wider">
                     {p.badge}
@@ -102,7 +103,7 @@ function Home() {
                 {p.price_cents != null && (
                   <div className="mt-2 font-display text-2xl text-brand">{formatZAR(p.price_cents)}</div>
                 )}
-                </div>}
+                </div>
               </Link>
             ))}
           </div>

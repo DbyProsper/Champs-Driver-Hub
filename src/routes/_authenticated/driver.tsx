@@ -285,6 +285,7 @@ function DriverPage() {
     await (supabase.from("orders") as any).update({ workflow_status: "accepted_by_driver", driver_confirmed_at: new Date().toISOString() }).eq("id", d.order_id);
     void sendOrderEventEmail(d.order_id, "accepted");
     toast.success("Order accepted — get moving and keep it safe");
+    setTab("active");
   }
 
   async function uploadProfilePhoto(file: File) {
@@ -439,8 +440,9 @@ function DriverPage() {
       <header className="sticky top-0 z-30 border-b bg-background">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <Link to="/" className="font-display text-xl text-brand inline-flex items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-brand"><img src="/images/champs/driver-delivery-icon.png" alt="Champs delivery driver" className="h-8 w-8 object-contain invert" /></span>
+            <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
             <span>Driver</span>
+            <img src="/images/champs/driver-delivery-mark-clean.png" alt="Champs delivery driver" className="h-9 w-12 object-contain" />
           </Link>
           <div className="flex items-center gap-2">
             <NotificationCenter />

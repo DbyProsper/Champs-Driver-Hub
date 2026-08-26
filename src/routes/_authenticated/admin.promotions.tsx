@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Plus, Trash2, Save, Sparkles, Image as ImageIcon, X, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Sparkles, Image as ImageIcon, X, Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -132,6 +132,31 @@ function PromoAdmin() {
     load();
   }
 
+  async function uploadPromoImage(file: File) {
+    if (!file.type.startsWith("image/")) return toast.error("Choose an image file");
+    if (file.size > 5 * 1024 * 1024) return toast.error("Image must be smaller than 5 MB");
+    setBusyAction("upload-image");
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+      const path = `promotions/${crypto.randomUUID()}-${safeName}`;
+      const { error: uploadError } = await supabase.storage.from("site-assets").upload(path, file, { contentType: file.type });
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
+      const title = file.name.replace(/\.[^.]+$/, "");
+      const { data: asset, error: assetError } = await supabase.from("media_assets").insert({ title, image_key: `promo-${crypto.randomUUID()}`, src: data.publicUrl, alt: title, usage: "promotion", is_active: true, sort_order: media.length * 10 + 10 }).select("*").single();
+      if (assetError) throw assetError;
+      setMedia((current) => [asset as MediaAsset, ...current]);
+      if (pickerFor === "new") setNewP((current) => ({ ...current, image_url: data.publicUrl }));
+      else if (pickerFor) edit(pickerFor, { image_url: data.publicUrl });
+      setPickerFor(null);
+      toast.success("Promotion image uploaded and selected");
+    } catch (error: any) {
+      toast.error(error.message ?? "Could not upload promotion image");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this promo?")) return;
     const promo = promos.find((item) => item.id === id);
@@ -173,6 +198,7 @@ function PromoAdmin() {
             <input className="rounded-md border px-3 py-2 text-sm" placeholder="Title (e.g. Wednesday Special)" value={newP.title} onChange={(e) => setNewP({ ...newP, title: e.target.value })} />
             <input className="rounded-md border px-3 py-2 text-sm" placeholder="Badge (e.g. WED)" value={newP.badge} onChange={(e) => setNewP({ ...newP, badge: e.target.value })} />
             <input className="rounded-md border px-3 py-2 text-sm sm:col-span-2" placeholder="Description" value={newP.description} onChange={(e) => setNewP({ ...newP, description: e.target.value })} />
+            {newP.image_url && <div className="sm:col-span-2"><div className="mb-1 text-xs font-semibold text-muted-foreground">Customer homepage preview</div><div className="aspect-square w-full max-w-64 overflow-hidden rounded-2xl border bg-muted"><img src={newP.image_url} alt="Selected promotion preview" className="h-full w-full object-cover" /></div></div>}
             <button type="button" onClick={() => setPickerFor("new")} className="inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {newP.image_url ? "Change promo image" : "Choose promo image"}</button>
             <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_from} onChange={(e) => setNewP({ ...newP, active_from: e.target.value })} />
             <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_until} onChange={(e) => setNewP({ ...newP, active_until: e.target.value })} />
@@ -213,6 +239,7 @@ function PromoAdmin() {
                     </select>
                   </div>
                   <textarea className="mt-2 w-full rounded-md border px-2 py-1.5 text-sm" rows={2} value={cur.description ?? ""} onChange={(e) => edit(p.id, { description: e.target.value || null })} placeholder="Description" />
+                  {cur.image_url && <div className="mt-2"><div className="mb-1 text-xs font-semibold text-muted-foreground">Customer homepage preview</div><div className="aspect-square w-full max-w-64 overflow-hidden rounded-2xl border bg-muted"><img src={cur.image_url} alt={`${cur.title} promotion preview`} className="h-full w-full object-cover" /></div></div>}
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <button type="button" onClick={() => setPickerFor(p.id)} className="inline-flex items-center justify-center gap-2 rounded-md border px-2 py-1.5 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {cur.image_url ? "Change image" : "Choose image"}</button>
                     <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_from ? cur.active_from.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_from: e.target.value ? new Date(e.target.value).toISOString() : null })} />
@@ -231,7 +258,7 @@ function PromoAdmin() {
           </div>
         </section>
       </div>
-      {pickerFor && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4" onClick={() => setPickerFor(null)}><div className="w-full max-w-3xl rounded-2xl bg-background p-4" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h2 className="font-display text-2xl text-brand">Choose promo image</h2><button onClick={() => setPickerFor(null)} className="grid h-9 w-9 place-items-center rounded-full border"><X className="h-4 w-4" /></button></div><div className="mt-3 grid max-h-[65vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-4">{media.map((asset) => <button key={asset.id} onClick={() => { if (pickerFor === "new") setNewP((current) => ({ ...current, image_url: asset.src })); else edit(pickerFor, { image_url: asset.src }); setPickerFor(null); }} className="overflow-hidden rounded-xl border text-left"><img src={asset.src} alt={asset.alt} className="aspect-square w-full object-cover" /><div className="truncate p-2 text-xs font-semibold">{asset.title}</div></button>)}</div></div></div>}
+      {pickerFor && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/60 p-4" onClick={() => setPickerFor(null)}><div className="w-full max-w-3xl rounded-2xl bg-background p-4" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h2 className="font-display text-2xl text-brand">Choose promo image</h2><button onClick={() => setPickerFor(null)} className="grid h-9 w-9 place-items-center rounded-full border"><X className="h-4 w-4" /></button></div><label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">{busyAction === "upload-image" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload from device<input type="file" accept="image/*" disabled={busyAction === "upload-image"} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadPromoImage(file); event.target.value = ""; }} /></label><div className="mt-3 grid max-h-[60vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-4">{media.map((asset) => <button key={asset.id} onClick={() => { if (pickerFor === "new") setNewP((current) => ({ ...current, image_url: asset.src })); else edit(pickerFor, { image_url: asset.src }); setPickerFor(null); }} className="overflow-hidden rounded-xl border text-left hover:border-brand"><img src={asset.src} alt={asset.alt} className="aspect-square w-full bg-muted object-contain" /><div className="truncate p-2 text-xs font-semibold">{asset.title}</div></button>)}</div></div></div>}
     </div>
   );
 }

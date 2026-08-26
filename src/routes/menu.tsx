@@ -270,6 +270,11 @@ function Row({ item }: { item: MenuItem }) {
     <div className={cn("flex items-start gap-3 rounded-xl border border-border bg-card p-3", !available && "opacity-50")}>
       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/60">
         <img src={image.src} alt={image.alt} className="h-full w-full object-cover" />
+        {item.special_price_cents != null && (
+          <span className="absolute left-1 top-1 rounded-full bg-brand px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-brand-foreground shadow-sm">
+            Special
+          </span>
+        )}
       </div>
 
       <div className="flex-1 min-w-0">

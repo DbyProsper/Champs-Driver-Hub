@@ -238,13 +238,14 @@ function Account() {
         {/* Weekly specials */}
         {promos.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="h-4 w-4 text-brand" />
-              <h2 className="font-display text-2xl">Specials for you</h2>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-brand" /><h2 className="font-display text-2xl">Specials for you</h2></div>
+              <Link to="/menu" hash="promos" className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">Go to menu</Link>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              {promos.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-xl border border-border bg-card p-3">
+              {promos.map((p) => { const matchingItem = menu?.items.find((item) => item.name.trim().toLowerCase() === p.title.trim().toLowerCase()); const image = p.image_url || matchingItem?.image_url || getMenuImageForItem(matchingItem?.name ?? p.title, matchingItem?.variant_label ?? null).src; return (
+                <div key={p.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2">
+                  <img src={image} alt={p.title} className="h-14 w-14 shrink-0 rounded-lg bg-muted object-cover" />
                   <div className="min-w-0">
                     {p.badge && <div className="text-[10px] font-bold uppercase tracking-wider text-brand">{p.badge}</div>}
                     <div className="font-semibold text-sm">{p.title}</div>
@@ -252,7 +253,7 @@ function Account() {
                   </div>
                   {p.price_cents != null && <div className="font-display text-xl text-brand shrink-0 pl-3">{formatZAR(p.price_cents)}</div>}
                 </div>
-              ))}
+              );})}
             </div>
           </section>
         )}
@@ -269,8 +270,9 @@ function Account() {
                     add({ id: it.id, name: it.name, variant: it.variant_label, unit_price_cents: it.price_cents });
                     toast.success(`Added ${it.name}`);
                   }}
-                  className="text-left rounded-xl border border-border bg-card p-3 hover:border-brand"
+                  className="text-left rounded-xl border border-border bg-card p-2 hover:border-brand"
                 >
+                  <img src={it.image_url || getMenuImageForItem(it.name, it.variant_label).src} alt={it.name} className="mb-2 h-28 w-full rounded-lg bg-muted object-cover sm:h-32" />
                   <div className="font-semibold text-sm truncate">{it.name}</div>
                   {it.variant_label && <div className="text-[11px] text-muted-foreground">{it.variant_label}</div>}
                   <div className="mt-1 font-display text-lg text-brand">{formatZAR(it.price_cents)}</div>

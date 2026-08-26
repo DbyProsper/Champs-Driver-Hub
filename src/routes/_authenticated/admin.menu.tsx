@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Save, Plus, Trash2, Image as ImageIcon, X, GripVertical, BadgePercent } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, Image as ImageIcon, X, ArrowUp, ArrowDown, BadgePercent } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -42,7 +42,6 @@ function MenuAdmin() {
   const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string }>>({});
   const [newCat, setNewCat] = useState("");
   const [pickerFor, setPickerFor] = useState<string | null>(null);
-  const [draggedId, setDraggedId] = useState<string | null>(null);
 
   async function load() {
     const [i, c, m] = await Promise.all([
@@ -103,18 +102,13 @@ function MenuAdmin() {
     else { toast.success("Deleted"); void logAdminAction({ action_type: "menu_item_deleted", action_description: "Deleted menu item", target_type: "menu_item", target_id: id }); load(); }
   }
 
-  function moveDraggedItem(target: Item) {
-    if (!draggedId || draggedId === target.id) return;
-    const dragged = items.find((item) => item.id === draggedId);
-    if (!dragged || dragged.category_id !== target.category_id) return;
-    const siblings = items.filter((item) => item.category_id === target.category_id).sort((a, b) => a.sort_order - b.sort_order);
-    const from = siblings.findIndex((item) => item.id === draggedId);
-    const to = siblings.findIndex((item) => item.id === target.id);
-    const reordered = [...siblings];
-    reordered.splice(to, 0, reordered.splice(from, 1)[0]);
-    const order = new Map(reordered.map((item, index) => [item.id, (index + 1) * 10]));
-    setItems((current) => current.map((item) => order.has(item.id) ? { ...item, sort_order: order.get(item.id)! } : item));
-    setDirty((current) => ({ ...current, ...Object.fromEntries(reordered.map((item, index) => [item.id, { ...current[item.id], sort_order: (index + 1) * 10 }])) }));
+  function moveItem(item: Item, direction: -1 | 1) {
+    const siblings = items.filter((entry) => entry.category_id === item.category_id).sort((a, b) => a.sort_order - b.sort_order);
+    const index = siblings.findIndex((entry) => entry.id === item.id);
+    const other = siblings[index + direction];
+    if (!other) return;
+    setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, sort_order: other.sort_order } : entry.id === other.id ? { ...entry, sort_order: item.sort_order } : entry));
+    setDirty((current) => ({ ...current, [item.id]: { ...current[item.id], sort_order: other.sort_order }, [other.id]: { ...current[other.id], sort_order: item.sort_order } }));
   }
 
   async function addCategory() {
@@ -159,7 +153,7 @@ function MenuAdmin() {
                   const auto = getMenuImageForItem(cur.name, cur.variant_label);
                   const imgSrc = cur.image_url || auto.src;
                   return (
-                    <div key={it.id} data-menu-item-id={it.id} draggable onDragStart={(event) => { setDraggedId(it.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", it.id); }} onDragEnd={() => setDraggedId(null)} onDragEnter={(event) => { event.preventDefault(); moveDraggedItem(it); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDrop={(event) => { event.preventDefault(); setDraggedId(null); }} className={`grid gap-3 p-3 transition-[transform,opacity,background-color] duration-150 sm:grid-cols-[auto_1fr_auto] sm:items-start ${draggedId === it.id ? "scale-[0.98] bg-brand/10 opacity-60 shadow-lg" : draggedId ? "bg-background" : ""}`}>
+                    <div key={it.id} className="grid gap-3 p-3 transition-colors sm:grid-cols-[auto_1fr_auto] sm:items-start">
                       <div className="flex items-center gap-2 sm:flex-col">
                       <button
                         type="button"
@@ -172,7 +166,7 @@ function MenuAdmin() {
                           {cur.image_url ? "Custom" : "Auto"}
                         </span>
                       </button>
-                      <button type="button" aria-label={`Drag ${cur.name} to reorder`} style={{ touchAction: "none" }} onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setDraggedId(it.id); }} onPointerMove={(event) => { if (!draggedId) return; const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-menu-item-id]"); const target = row ? items.find((item) => item.id === row.dataset.menuItemId) : null; if (target) moveDraggedItem(target); }} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDraggedId(null); }} onPointerCancel={() => setDraggedId(null)} className="inline-flex cursor-grab select-none items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold uppercase text-muted-foreground active:cursor-grabbing"><GripVertical className="h-4 w-4" /> Drag</button>
+                      <div className="flex gap-1"><button type="button" disabled={catItems[0]?.id === it.id} onClick={() => moveItem(it, -1)} className="grid h-8 w-8 place-items-center rounded-full border disabled:opacity-30" aria-label={`Move ${cur.name} up`}><ArrowUp className="h-4 w-4" /></button><button type="button" disabled={catItems[catItems.length - 1]?.id === it.id} onClick={() => moveItem(it, 1)} className="grid h-8 w-8 place-items-center rounded-full border disabled:opacity-30" aria-label={`Move ${cur.name} down`}><ArrowDown className="h-4 w-4" /></button></div>
                       </div>
                       <div className="grid min-w-0 gap-2 sm:grid-cols-2">
                       <input

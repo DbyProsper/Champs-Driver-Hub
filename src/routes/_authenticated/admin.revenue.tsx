@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Bike, CalendarDays, Package, TrendingUp } from "lucide-react";
+import { ArrowLeft, Bike, CalendarDays, Download, Package, Printer, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 
@@ -99,6 +99,33 @@ function RevenueOverviewPage() {
   const pickupCount = collectedOrders.length - deliveryCount;
   const selectedBranchLabel = branchFilter === "all" ? "All branches" : branches.find((branch) => branch.id === branchFilter)?.city ?? "Selected branch";
   const branchLookup = new Map(branches.map((branch) => [branch.id, branch.city]));
+  const selectedRangeLabel = range === "custom"
+    ? `${customFrom || "Beginning"} to ${customTo || "Today"}`
+    : REVENUE_RANGES.find((item) => item.value === range)?.label ?? "Selected period";
+
+  function downloadRevenueCsv() {
+    const escapeCsv = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = [
+      ["Order", "Date", "Branch", "Type", "Status", "Revenue (R)"],
+      ...collectedOrders.map((order) => [
+        order.order_number,
+        new Date(order.created_at).toLocaleString(),
+        branchLookup.get(order.branch_id) ?? "Branch",
+        order.fulfillment,
+        order.status.replace(/_/g, " "),
+        (order.subtotal_cents / 100).toFixed(2),
+      ]),
+      [],
+      ["Report", selectedBranchLabel, selectedRangeLabel, "Total revenue", (revenue / 100).toFixed(2)],
+    ];
+    const csv = rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `champs-revenue-${selectedBranchLabel.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="min-h-screen bg-muted/40 pb-20">
@@ -111,7 +138,7 @@ function RevenueOverviewPage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-4 space-y-4">
-        <section className="rounded-3xl border bg-card p-4 shadow-sm">
+        <section className="rounded-3xl border bg-card p-4 shadow-sm print:hidden">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
@@ -138,6 +165,23 @@ function RevenueOverviewPage() {
               </div>
             )}
           </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-4 print:hidden">
+            <div className="text-xs text-muted-foreground">Exporting {collectedOrders.length} revenue orders · {selectedRangeLabel}</div>
+            <div className="flex gap-2">
+              <button type="button" onClick={downloadRevenueCsv} className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-2 text-xs font-bold hover:border-brand"><Download className="h-3.5 w-3.5" /> Download CSV</button>
+              <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Printer className="h-3.5 w-3.5" /> Print report</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="hidden print:block">
+          <div className="font-display text-3xl">Champs revenue report</div>
+          <div className="mt-1 text-sm">{selectedBranchLabel} · {selectedRangeLabel}</div>
+          <table className="mt-5 w-full border-collapse text-left text-xs">
+            <thead><tr className="border-b"><th className="py-2">Order</th><th>Date</th><th>Branch</th><th>Type</th><th className="text-right">Revenue</th></tr></thead>
+            <tbody>{collectedOrders.map((order) => <tr key={order.id} className="border-b"><td className="py-2">#{order.order_number}</td><td>{new Date(order.created_at).toLocaleDateString()}</td><td>{branchLookup.get(order.branch_id) ?? "Branch"}</td><td className="capitalize">{order.fulfillment}</td><td className="text-right">{formatZAR(order.subtotal_cents)}</td></tr>)}</tbody>
+            <tfoot><tr className="font-bold"><td colSpan={4} className="py-3">Total revenue</td><td className="text-right">{formatZAR(revenue)}</td></tr></tfoot>
+          </table>
         </section>
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -164,7 +208,7 @@ function RevenueOverviewPage() {
           </div>
         </div>
 
-        <section className="rounded-3xl border bg-card p-4 shadow-sm">
+        <section className="rounded-3xl border bg-card p-4 shadow-sm print:hidden">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">All orders</div>

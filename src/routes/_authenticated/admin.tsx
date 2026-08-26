@@ -206,22 +206,12 @@ function Admin() {
 
   useEffect(() => {
     if (!role) return;
-    let active = true;
-    const printPendingJobs = async () => {
-      const { data } = await (supabase as any).from("receipt_print_jobs").select("id,order_id").eq("status", "pending").order("created_at");
-      if (!active) return;
-      for (const job of data ?? []) {
-        try { await printOrderReceipt(job.order_id, job.id); }
-        catch (error: any) { toast.error(error.message ?? "Kitchen receipt could not print"); break; }
-      }
-    };
-    void printPendingJobs();
     const channel = supabase.channel("receipt-print-jobs-admin")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "receipt_print_jobs" }, (payload) => {
         const job = payload.new as { id: string; order_id: string };
         void printOrderReceipt(job.order_id, job.id).catch((error) => toast.error(error.message));
       }).subscribe();
-    return () => { active = false; void supabase.removeChannel(channel); };
+    return () => { void supabase.removeChannel(channel); };
   }, [role]);
 
   async function updateStatus(id: string, status: Order["status"]) {
