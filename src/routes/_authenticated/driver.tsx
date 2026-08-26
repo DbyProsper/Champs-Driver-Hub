@@ -438,13 +438,13 @@ function DriverPage() {
   return (
     <div className="min-h-screen bg-muted/40 pb-20">
       <header className="sticky top-0 z-30 border-b bg-background">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-2xl flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <Link to="/" className="font-display text-xl text-brand inline-flex items-center gap-2">
             <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
             <span>Driver</span>
             <img src="/images/champs/driver-delivery-mark-clean.png" alt="Champs delivery driver" className="h-9 w-12 object-contain" />
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
             <NotificationCenter />
             {driver && <div className="relative"><ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" /><span className="absolute -right-2 -top-2"><UnreadNavigationBadge types={["new_message"]} /></span></div>}
             <button type="button" onClick={() => setShowHelp(true)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label="How driver orders work"><CircleHelp className="h-4 w-4" /></button>
