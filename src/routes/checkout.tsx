@@ -7,7 +7,7 @@ import { useBranch } from "@/lib/branch";
 import { formatZAR } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { MapPin, Loader2, Navigation, AlertTriangle, Bike, Phone, MessageCircle, Star, X } from "lucide-react";
+import { MapPin, MapPinned, Loader2, Navigation, AlertTriangle, Bike, Phone, MessageCircle, Star, X } from "lucide-react";
 import {
   DEFAULT_DELIVERY_SETTINGS,
   fetchDeliverySettings,
@@ -29,6 +29,7 @@ import { getMenuImageForItem } from "@/lib/menu-images";
 import { ChatDialog } from "@/components/ChatDialog";
 import { ImagePreview } from "@/components/ImagePreview";
 import { sendOrderEventEmail } from "@/lib/order-email";
+import { LocationPickerDialog } from "@/components/LocationPickerDialog";
 
 type CheckoutDriver = { driver_id: string; user_id: string; name: string; profile_image_url: string | null; phone: string; rating: number; distance_km: number | null; status: "online" | "offline" };
 type DriverReview = { rating: number; comment: string | null; created_at: string };
@@ -81,6 +82,9 @@ function Checkout() {
   const [driverReviews, setDriverReviews] = useState<Record<string, DriverReview[]>>({});
   const [submittedOrder, setSubmittedOrder] = useState<SubmittedOrder | null>(null);
   const [storeOpen, setStoreOpen] = useState<boolean | null>(null);
+  const [closedMessage, setClosedMessage] = useState("Online ordering is closed right now. Please check back when Champs reopens.");
+  const [savedHome, setSavedHome] = useState<{ address: string; lat: number; lng: number } | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -93,6 +97,12 @@ function Checkout() {
     fetchDeliverySettings().then(setSettings).catch(() => {});
     fetchActiveDeliveryCount().then(setActiveCount).catch(() => {});
     fetchOnlineDriverCount().then(setDriversOnline).catch(() => setDriversOnline(0));
+    const loadShopStatus = async () => {
+      const { data } = await (supabase.from("site_settings") as any).select("online_ordering_open,online_ordering_closed_message").eq("id", "main").maybeSingle();
+      setStoreOpen(data?.online_ordering_open !== false);
+      if (data?.online_ordering_closed_message) setClosedMessage(data.online_ordering_closed_message);
+    };
+    void loadShopStatus();
     const ch = supabase
       .channel("checkout-drivers")
       .on("postgres_changes", { event: "*", schema: "public", table: "drivers" }, () => {
@@ -104,18 +114,9 @@ function Checkout() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "delivery_settings", filter: "id=eq.default" }, () => {
         fetchDeliverySettings().then(setSettings).catch(() => {});
       })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings", filter: "id=eq.main" }, () => void loadShopStatus())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, []);
-
-  useEffect(() => {
-    const updateStoreHours = () => {
-      const hour = new Date().getHours();
-      setStoreOpen(hour >= 8 && hour < 21);
-    };
-    updateStoreHours();
-    const timer = window.setInterval(updateStoreHours, 60_000);
-    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -142,9 +143,9 @@ function Checkout() {
       const { data: u } = await supabase.auth.getUser();
       if (u.user) {
         setUserId(u.user.id);
-        const { data: profile } = await supabase
+        const { data: profile } = await (supabase
           .from("profiles")
-          .select("full_name, phone")
+          .select("full_name,phone,home_address,home_lat,home_lng") as any)
           .eq("id", u.user.id)
           .maybeSingle();
         if (profile) {
@@ -153,6 +154,7 @@ function Checkout() {
             customer_name: f.customer_name || profile.full_name || "",
             customer_phone: f.customer_phone || profile.phone || "",
           }));
+          if (profile.home_address && profile.home_lat != null && profile.home_lng != null) setSavedHome({ address: profile.home_address, lat: profile.home_lat, lng: profile.home_lng });
         }
       }
     })();
@@ -235,6 +237,22 @@ function Checkout() {
     }
   }
 
+  function useSavedHome() {
+    if (!savedHome) return;
+    setForm((current) => ({ ...current, delivery_address: savedHome.address }));
+    setCoords({ lat: savedHome.lat, lng: savedHome.lng });
+    setAddressConfirmed(true);
+  }
+
+  async function saveCurrentAsHome() {
+    if (!userId || !coords || !addressConfirmed || !form.delivery_address.trim()) return;
+    const next = { address: form.delivery_address.trim(), lat: coords.lat, lng: coords.lng };
+    const { error } = await (supabase.from("profiles") as any).update({ home_address: next.address, home_lat: next.lat, home_lng: next.lng }).eq("id", userId);
+    if (error) return toast.error(error.message);
+    setSavedHome(next);
+    toast.success("Home address saved");
+  }
+
   if (items.length === 0 && !submitting) {
     return (
       <div className="min-h-screen">
@@ -250,6 +268,12 @@ function Checkout() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!branch) return toast.error("Please choose a branch first");
+    const { data: latestShop } = await (supabase.from("site_settings") as any).select("online_ordering_open,online_ordering_closed_message").eq("id", "main").maybeSingle();
+    if (latestShop?.online_ordering_open === false) {
+      setStoreOpen(false);
+      if (latestShop.online_ordering_closed_message) setClosedMessage(latestShop.online_ordering_closed_message);
+      return toast.error(latestShop.online_ordering_closed_message || closedMessage);
+    }
     const parsed = schema.safeParse(form);
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
     if (!userId) return toast.error("Please sign in before placing an order so only you can track it");
@@ -292,9 +316,9 @@ function Checkout() {
       if (oErr) throw oErr;
 
       if (isDelivery) {
-        // Seed the delivery row with a 20s broadcast window before auto-assignment
+        // Give the selected driver ten minutes to accept before offering reassignment.
         const now = new Date();
-        const deadline = new Date(now.getTime() + 20_000);
+        const deadline = new Date(now.getTime() + 10 * 60_000);
         await (supabase.from("deliveries") as any).upsert({
           order_id: orderRow.id,
           driver_id: selectedDriverId,
@@ -343,6 +367,7 @@ function Checkout() {
     <div className="min-h-screen pb-10">
       <Header subtitle="Checkout" />
       <form onSubmit={submit} className="mx-auto max-w-lg px-4 py-4 space-y-5">
+        {storeOpen === false && <div className="rounded-2xl border border-amber-500/40 bg-amber-50 px-4 py-4 text-sm text-amber-900"><div className="font-bold">Online ordering is currently closed</div><div className="mt-1">{closedMessage}</div></div>}
         {branch && (
           <div className="rounded-xl bg-brand/5 border border-brand/20 px-4 py-3 text-xs flex items-center gap-2">
             <MapPin className="h-4 w-4 text-brand" />
@@ -387,7 +412,7 @@ function Checkout() {
           )}
           {!settings.pickup_enabled && !deliveryCurrentlyAvailable && (
             <div className="mb-2 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              Pickup and delivery aren't available right now. {storeOpen === true ? "The store is open—please order in-store." : storeOpen === false ? "The store is closed; in-store ordering is available daily from 08:00 to 21:00." : "In-store ordering is available daily from 08:00 to 21:00."}
+              Pickup and delivery aren't available right now. {storeOpen === false ? closedMessage : "Please order directly from the branch."}
             </div>
           )}
           {settings.pickup_enabled && !deliveryCurrentlyAvailable && (
@@ -439,6 +464,10 @@ function Checkout() {
                 placeholder="Delivery address (start typing to search)"
                 bias={branch?.latitude && branch?.longitude ? { lat: branch.latitude, lng: branch.longitude } : undefined}
               />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {savedHome && <button type="button" onClick={useSavedHome} className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold"><MapPin className="h-4 w-4 text-brand" /> Use saved home</button>}
+                <button type="button" onClick={() => setMapOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold"><MapPinned className="h-4 w-4 text-brand" /> Choose pin on map</button>
+              </div>
               <textarea
                 className="w-full rounded-xl border border-input bg-card px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand"
                 placeholder="Residence / hostel / building or driver note (optional)"
@@ -517,6 +546,7 @@ function Checkout() {
                   Delivery fees: 0–{settings.tier1_max_km}km {formatZAR(settings.tier1_fee_cents)} · {settings.tier1_max_km}–{settings.tier2_max_km}km {formatZAR(settings.tier2_fee_cents)} · {settings.tier2_max_km}–{settings.tier3_max_km}km {formatZAR(settings.tier3_fee_cents)}
                 </p>
               )}
+              {addressConfirmed && coords && <button type="button" onClick={() => void saveCurrentAsHome()} className="text-xs font-semibold text-brand underline">Save this as my home address</button>}
               {userId ? (
                 <div className="space-y-2">
                   <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Choose your driver</div>
@@ -567,12 +597,13 @@ function Checkout() {
 
         <button
           type="submit"
-          disabled={submitting || !branch || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
+          disabled={submitting || !branch || storeOpen !== true || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
           className="w-full rounded-full bg-brand py-4 text-sm font-bold text-brand-foreground hover:bg-brand-dark disabled:opacity-60"
         >
           {submitting ? "Sending order…" : form.fulfillment === "delivery" ? `Send Order to Driver · ${formatZAR(totalCents)}` : `Place order · ${formatZAR(subtotalCents)}`}
         </button>
       </form>
+      <LocationPickerDialog open={mapOpen} initial={coords} fallback={branch?.latitude != null && branch?.longitude != null ? { lat: branch.latitude, lng: branch.longitude } : null} onClose={() => setMapOpen(false)} onConfirm={(location) => { setForm((current) => ({ ...current, delivery_address: location.address })); setCoords({ lat: location.lat, lng: location.lng }); setAddressConfirmed(true); setMapOpen(false); }} />
       {submittedOrder && (
         <div className="fixed inset-0 z-[75] grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-md rounded-3xl border bg-background p-6 shadow-2xl">

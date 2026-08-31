@@ -1,16 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bike, Phone, MapPin, Loader2, LogOut, RefreshCw, Package, Navigation as NavIcon, CheckCircle2, Landmark, CreditCard, Settings2, Eye, XCircle, Upload, MessageCircle, CircleHelp, X } from "lucide-react";
+import { Bike, Phone, MapPin, Loader2, LogOut, RefreshCw, Package, Navigation as NavIcon, CheckCircle2, Landmark, CreditCard, Settings2, Eye, XCircle, Upload, MessageCircle, CircleHelp, X, Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
 import { DELIVERY_STATUS_LABEL, getOrderStatusForDeliveryStatus, type DeliveryStatus } from "@/lib/delivery";
 import { confirmDeliveryPayment, getDriverProfileForCurrentUser } from "@/lib/admin.functions";
 import { DriverPageSkeleton } from "@/components/Loader";
-import { fireNotification, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
+import { notificationPermission, requestNotificationPermission } from "@/lib/notifications";
 import { ChatDialog } from "@/components/ChatDialog";
 import { NotificationCenter } from "@/components/NotificationCenter";
-import { UnreadNavigationBadge } from "@/components/UnreadNavigationBadge";
 import { sendOrderEventEmail } from "@/lib/order-email";
 import { SA_BANKS } from "@/lib/sa-banks";
 import { PasswordChangeForm } from "@/components/PasswordChangeForm";
@@ -79,6 +78,7 @@ function DriverPage() {
   const [showHelp, setShowHelp] = useState(false);
   const [notificationConversationId, setNotificationConversationId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const seenDeliveryIds = useRef<Set<string> | null>(null);
   const previousDeliveryStatuses = useRef<Record<string, string>>({});
 
@@ -135,11 +135,9 @@ function DriverPage() {
     if (seenDeliveryIds.current) {
       for (const delivery of list) {
         if (!seenDeliveryIds.current.has(delivery.id) && delivery.status !== "delivered" && delivery.status !== "cancelled") {
-          fireNotification("New Champs delivery", "A new delivery is available in the driver queue", `delivery-${delivery.id}`);
         }
         const previousStatus = previousDeliveryStatuses.current[delivery.id];
         if (previousStatus && previousStatus !== delivery.status && (delivery.driver_id === driverRecord.id || delivery.status === "pending")) {
-          fireNotification("Delivery update", `Delivery status: ${delivery.status.replaceAll("_", " ")}`, `delivery-${delivery.id}-${delivery.status}`);
         }
       }
     }
@@ -195,7 +193,7 @@ function DriverPage() {
   }, []);
 
   useEffect(() => {
-    void requestNotificationPermissionIfNeeded();
+    setBrowserPermission(notificationPermission());
     load();
   }, [load]);
 
@@ -206,7 +204,6 @@ function DriverPage() {
         const delivery = payload.new as Partial<Delivery>;
         if (delivery.id && delivery.status !== "delivered" && delivery.status !== "cancelled") {
           toast.success("New delivery available");
-          fireNotification("New Champs delivery", "A new order is ready in your driver queue", `new-delivery-${delivery.id}`);
         }
         void load(false);
       })
@@ -374,10 +371,20 @@ function DriverPage() {
   async function toggleStatus() {
     if (!driver || approvalBlocked) return toast.error("Your driver account is not approved yet");
     const nextStatus = driver.status === "active" ? "offline" : "active";
+    if (nextStatus === "active" && browserPermission === "default") await enableBrowserAlerts(false);
     const { error } = await supabase.from("drivers").update({ status: nextStatus } as never).eq("id", driver.id);
     if (error) return toast.error(error.message);
     setDriver({ ...driver, status: nextStatus });
     toast.success(nextStatus === "active" ? "You are now online" : "You are now offline");
+  }
+
+  async function enableBrowserAlerts(showSuccess = true) {
+    const permission = await requestNotificationPermission();
+    setBrowserPermission(permission);
+    if (permission !== "granted") return toast.error(permission === "denied" ? "Browser alerts are blocked. Enable notifications in your browser settings." : "This browser does not support notifications.");
+    const { data: auth } = await supabase.auth.getUser();
+    if (auth.user) await (supabase as any).from("user_notification_preferences").upsert({ user_id: auth.user.id, browser_enabled: true, order_updates: true, message_alerts: true });
+    if (showSuccess) toast.success("Phone browser alerts enabled");
   }
 
   async function confirmPayment(id: string) {
@@ -448,7 +455,7 @@ function DriverPage() {
           </Link>
           <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
             <NotificationCenter />
-            {driver && <div className="relative"><ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" /><span className="absolute -right-2 -top-2"><UnreadNavigationBadge types={["new_message"]} /></span></div>}
+            {driver && <ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" />}
             <button type="button" onClick={() => setShowHelp(true)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label="How driver orders work"><CircleHelp className="h-4 w-4" /></button>
             <button disabled={!!actionBusy} onClick={() => void runAction("status", toggleStatus)} className={"inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider disabled:opacity-60 " + (driver?.status === "active" ? "bg-emerald-600 text-white" : "border bg-background text-muted-foreground")}>
               {actionBusy === "status" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{driver?.status === "active" ? "Online" : "Offline"}
@@ -472,6 +479,7 @@ function DriverPage() {
       </header>
 
       <div className="mx-auto max-w-2xl px-4 py-4 space-y-3">
+        {browserPermission !== "granted" && <button type="button" onClick={() => void enableBrowserAlerts()} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-brand/30 bg-brand/5 px-4 py-3 text-left"><span><span className="block text-sm font-bold text-brand">Enable new-order phone alerts</span><span className="block text-xs text-muted-foreground">Get a browser alert as soon as a customer sends you an order or message.</span></span><Bell className="h-5 w-5 shrink-0 text-brand" /></button>}
         {tab === "history" && (
           <div className="rounded-2xl border bg-card p-4">
             <div className="flex items-center justify-between gap-3">
@@ -654,7 +662,7 @@ function DriverPage() {
           );
         })}
       </div>
-      {showHelp && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="How driver orders work" onClick={() => setShowHelp(false)}><div className="w-full max-w-md rounded-3xl border bg-background p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div className="font-display text-2xl text-brand">How driver orders work</div><button type="button" onClick={() => setShowHelp(false)} className="grid h-9 w-9 place-items-center rounded-full border" aria-label="Close instructions"><X className="h-4 w-4" /></button></div><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground"><li>A customer chooses you and sends the order.</li><li>Accept, contact the customer, and confirm the full payment.</li><li>Submit to Champs; the kitchen receives it and prints the receipt.</li><li>Collect when ready—submitted driver orders are prepared for collection without joining the ordering queue.</li><li>Pick up, start delivery, then mark delivered.</li></ol></div></div>}
+      {showHelp && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="How driver orders work" onClick={() => setShowHelp(false)}><div className="w-full max-w-md rounded-3xl border bg-background p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div className="font-display text-2xl text-brand">How driver orders work</div><button type="button" onClick={() => setShowHelp(false)} className="grid h-9 w-9 place-items-center rounded-full border" aria-label="Close instructions"><X className="h-4 w-4" /></button></div><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-muted-foreground"><li>A customer chooses you and sends the order.</li><li>Accept, contact the customer, and confirm the full payment.</li><li>Submit to Champs; the kitchen receives it and prints the receipt.</li><li>Collect when ready—submitted driver orders are prepared for collection without joining the ordering queue.</li><li>Pick up, start delivery, then mark delivered.</li></ol><div className="mt-4 flex items-start gap-2 rounded-2xl border border-brand/25 bg-brand/5 p-3 text-sm"><Bell className="mt-0.5 h-4 w-4 shrink-0 text-brand" /><p>For iPhone notifications, Add the website to your Home Screen and enable notifications.</p></div></div></div>}
       {notificationConversationId && <ChatDialog conversationId={notificationConversationId} audience="champs" label="Champs chat" initialOpen hideTrigger onClose={() => setNotificationConversationId(null)} />}
     </div>
   );

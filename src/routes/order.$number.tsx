@@ -1,12 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { queryOptions, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, MessageCircle, Bell, ShieldCheck, Landmark, Upload, Copy, Phone, Star, Flag } from "lucide-react";
+import { CheckCircle2, MessageCircle, Bell, ShieldCheck, Landmark, Upload, Copy, Phone, Star, Flag, Loader2, Clock3 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
-import { fireNotification, notificationPermission, requestNotificationPermission, requestNotificationPermissionIfNeeded } from "@/lib/notifications";
+import { notificationPermission, requestNotificationPermission } from "@/lib/notifications";
 import { waLink, orderStatusMessage } from "@/lib/whatsapp";
 import { PAYMENT_STATUS_LABEL, resolveOrderDisplayStatus } from "@/lib/delivery";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ const orderQuery = (number: string) =>
     queryFn: async () => {
       const { data: order, error } = await (supabase as any)
         .from("orders")
-        .select("id, order_number, customer_name, customer_phone, fulfillment, delivery_notes, subtotal_cents, delivery_fee_cents, status, created_at, pickup_pin, branch_id, verified_at, user_id, driver_id, workflow_status")
+        .select("id, order_number, customer_name, customer_phone, fulfillment, delivery_notes, subtotal_cents, delivery_fee_cents, status, created_at, pickup_pin, branch_id, verified_at, user_id, driver_id, workflow_status, delivery_lat, delivery_lng")
         .eq("order_number", number)
         .maybeSingle();
       if (error) throw error;
@@ -32,7 +32,7 @@ const orderQuery = (number: string) =>
           : Promise.resolve({ data: null }),
         order.fulfillment === "delivery"
           ? (supabase.from("deliveries") as any)
-              .select("id, queue_position, estimated_eta_min, estimated_eta_max, driver_id, status, delivery_fee_cents, payment_status, payment_reference, proof_of_payment_url")
+              .select("id, queue_position, estimated_eta_min, estimated_eta_max, driver_id, status, delivery_fee_cents, payment_status, payment_reference, proof_of_payment_url, assign_deadline_at")
               .eq("order_id", order.id)
               .maybeSingle()
           : Promise.resolve({ data: null }),
@@ -112,8 +112,11 @@ function OrderPage() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportDetails, setReportDetails] = useState("");
-
-  useEffect(() => { void requestNotificationPermissionIfNeeded(); }, []);
+  const [timeoutOpen, setTimeoutOpen] = useState(false);
+  const [timeoutView, setTimeoutView] = useState<"choices" | "drivers">("choices");
+  const [timeoutBusy, setTimeoutBusy] = useState(false);
+  const [alternativeDrivers, setAlternativeDrivers] = useState<any[]>([]);
+  const [timeoutSnoozeUntil, setTimeoutSnoozeUntil] = useState(0);
 
   const isDelivery = data?.order.fulfillment === "delivery";
   const effectiveStatus = resolveOrderDisplayStatus(data?.order.status ?? "pending", data?.delivery?.status ?? null) ?? data?.order.status ?? "pending";
@@ -135,7 +138,6 @@ function OrderPage() {
         if (prevStatus.current && newStatus !== prevStatus.current) {
           const label = STATUS_LABEL[newStatus] ?? newStatus;
           toast.success(`Order update: ${label}`);
-          fireNotification(`Champs Chicken — ${label}`, `Order ${data.order.order_number} · ${label}`, `order-${data.order.id}`);
           prevStatus.current = newStatus;
         }
         refetch();
@@ -145,13 +147,36 @@ function OrderPage() {
         if (status) {
           const label = DELIVERY_STATUS_LABEL[status] ?? status;
           toast.success(`Order update: ${label}`);
-          fireNotification(`Champs Chicken — ${label}`, `Order ${data.order.order_number} · ${label}`, `order-${data.order.id}-${status}`);
         }
         refetch();
       })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [data?.order.id, data?.order.order_number, refetch, STATUS_LABEL]);
+
+  useEffect(() => {
+    const deadline = data?.delivery?.assign_deadline_at ? new Date(data.delivery.assign_deadline_at).getTime() : 0;
+    const stillWaiting = isDelivery
+      && data?.order.workflow_status === "pending_driver_acceptance"
+      && data?.delivery?.status === "pending_driver_acceptance"
+      && Boolean(effectiveDriverId)
+      && deadline > 0;
+    if (!stillWaiting) {
+      setTimeoutOpen(false);
+      return;
+    }
+    const dueAt = Math.max(deadline, timeoutSnoozeUntil);
+    const show = () => {
+      setTimeoutView("choices");
+      setTimeoutOpen(true);
+    };
+    if (dueAt <= Date.now()) {
+      show();
+      return;
+    }
+    const timer = window.setTimeout(show, dueAt - Date.now());
+    return () => window.clearTimeout(timer);
+  }, [data?.delivery?.assign_deadline_at, data?.delivery?.status, data?.order.workflow_status, effectiveDriverId, isDelivery, timeoutSnoozeUntil]);
 
   useEffect(() => {
     const delivered = isDelivery && data?.order && (data.order.workflow_status === "delivered" || visibleStatus === "completed");
@@ -167,8 +192,58 @@ function OrderPage() {
   async function enableNotifications() {
     const p = await requestNotificationPermission();
     setPermission(p);
-    if (p === "granted") toast.success("Notifications enabled");
+    if (p === "granted") {
+      const { data: auth } = await supabase.auth.getUser();
+      if (auth.user) {
+        await (supabase as any).from("user_notification_preferences").upsert({
+          user_id: auth.user.id,
+          browser_enabled: true,
+          order_updates: true,
+          message_alerts: true,
+        }, { onConflict: "user_id" });
+      }
+      toast.success("Notifications enabled");
+    }
     else if (p === "denied") toast.error("Notifications blocked in browser settings");
+  }
+
+  async function loadAlternativeDrivers() {
+    if (!data?.order.id) return;
+    setTimeoutBusy(true);
+    try {
+      const { data: drivers, error } = await (supabase as any).rpc("list_reassignment_drivers", { _order_id: data.order.id });
+      if (error) throw error;
+      setAlternativeDrivers(drivers ?? []);
+      setTimeoutView("drivers");
+    } catch (error: any) {
+      toast.error(error.message ?? "Could not load available drivers");
+    } finally {
+      setTimeoutBusy(false);
+    }
+  }
+
+  async function reassignDriver(driverId: string) {
+    if (!data?.order.id) return;
+    setTimeoutBusy(true);
+    try {
+      const { error } = await (supabase as any).rpc("reassign_timed_out_order", { _order_id: data.order.id, _driver_id: driverId });
+      if (error) throw error;
+      toast.success("Order sent to your new driver");
+      setTimeoutOpen(false);
+      setAlternativeDrivers([]);
+      await refetch();
+    } catch (error: any) {
+      toast.error(error.message ?? "That driver is no longer available");
+      await loadAlternativeDrivers();
+    } finally {
+      setTimeoutBusy(false);
+    }
+  }
+
+  function waitForDriver() {
+    setTimeoutSnoozeUntil(Date.now() + 5 * 60_000);
+    setTimeoutOpen(false);
+    toast.info("We’ll remind you again in 5 minutes if the driver has not responded.");
   }
 
   async function markIPaid() {
@@ -208,13 +283,13 @@ function OrderPage() {
   }
 
   async function submitRating() {
-    if (!data?.order.driver_id || !data.order.user_id) return toast.error("A signed-in delivered order is required");
+    if (!effectiveDriverId || !data?.order.user_id) return toast.error("A signed-in delivered order is required");
     if (rating < 3 && ratingComment.trim().length < 5) return toast.error("Please tell us what went wrong for ratings below 3 stars");
     const { data: user } = await supabase.auth.getUser();
     if (user.user?.id !== data.order.user_id) return toast.error("Sign in with the account that placed this order");
     const customerId = user.user?.id;
     if (!customerId) return;
-    const { error } = await (supabase as any).from("driver_ratings").upsert({ order_id: data.order.id, driver_id: data.order.driver_id, customer_id: customerId, rating, comment: ratingComment.trim() || null }, { onConflict: "order_id" });
+    const { error } = await (supabase as any).from("driver_ratings").upsert({ order_id: data.order.id, driver_id: effectiveDriverId, customer_id: customerId, rating, comment: ratingComment.trim() || null }, { onConflict: "order_id" });
     if (error) return toast.error(error.message);
     setRatingSubmitted(true);
     setRatingOpen(false);
@@ -222,12 +297,12 @@ function OrderPage() {
   }
 
   async function submitReport() {
-    if (!data?.order.driver_id || !data.order.user_id) return;
+    if (!effectiveDriverId || !data?.order.user_id) return;
     const { data: user } = await supabase.auth.getUser();
     if (user.user?.id !== data.order.user_id) return toast.error("Sign in with the account that placed this order");
     const customerId = user.user?.id;
     if (!customerId) return;
-    const { error } = await (supabase as any).from("driver_reports").insert({ order_id: data.order.id, driver_id: data.order.driver_id, customer_id: customerId, reason: reportReason.trim(), details: reportDetails.trim() });
+    const { error } = await (supabase as any).from("driver_reports").insert({ order_id: data.order.id, driver_id: effectiveDriverId, customer_id: customerId, reason: reportReason.trim(), details: reportDetails.trim() });
     if (error) return toast.error(error.message);
     setReportOpen(false); toast.success("Report sent to Champs for review");
   }
@@ -349,6 +424,52 @@ function OrderPage() {
                 <div className="mt-2 text-[11px] text-muted-foreground">Payment status: <span className="font-semibold text-foreground">{PAYMENT_STATUS_LABEL[d?.payment_status ?? "not_paid"]}</span></div>
               </div>
             )}
+          </div>
+        )}
+
+        {timeoutOpen && (
+          <div className="fixed inset-0 z-[90] grid place-items-end bg-black/55 p-0 sm:place-items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="driver-timeout-title">
+            <div className="max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl border bg-background p-5 shadow-2xl sm:max-w-md sm:rounded-3xl">
+              <div className="flex items-start gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-700"><Clock3 className="h-5 w-5" /></div>
+                <div>
+                  <div id="driver-timeout-title" className="font-display text-2xl text-brand">Your driver hasn’t responded</div>
+                  <p className="mt-1 text-sm text-muted-foreground">It has been 10 minutes. You can choose another free driver, contact {driver?.name ?? "your driver"}, or wait a little longer.</p>
+                </div>
+              </div>
+
+              {timeoutView === "choices" ? (
+                <div className="mt-5 space-y-2">
+                  <button type="button" disabled={timeoutBusy} onClick={loadAlternativeDrivers} className="flex w-full items-center justify-center gap-2 rounded-full bg-brand px-4 py-3 text-sm font-bold text-brand-foreground disabled:opacity-60">
+                    {timeoutBusy && <Loader2 className="h-4 w-4 animate-spin" />} Choose another free driver
+                  </button>
+                  {driver?.phone && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <a href={`tel:${driver.phone}`} className="inline-flex items-center justify-center gap-2 rounded-full border px-3 py-3 text-sm font-bold"><Phone className="h-4 w-4" /> Call driver</a>
+                      <a href={`https://wa.me/${driver.phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi, are you able to accept Champs order ${order.order_number}?`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border px-3 py-3 text-sm font-bold"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
+                    </div>
+                  )}
+                  <button type="button" onClick={waitForDriver} className="w-full rounded-full border px-4 py-3 text-sm font-bold">Wait 5 more minutes</button>
+                </div>
+              ) : (
+                <div className="mt-5">
+                  <button type="button" onClick={() => setTimeoutView("choices")} className="mb-3 text-sm font-semibold text-brand">← Back</button>
+                  {alternativeDrivers.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed p-5 text-center text-sm text-muted-foreground">No other free drivers are online right now. You can contact your current driver or wait and try again.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {alternativeDrivers.map((candidate) => (
+                        <button key={candidate.driver_id} type="button" disabled={timeoutBusy} onClick={() => reassignDriver(candidate.driver_id)} className="flex w-full items-center gap-3 rounded-2xl border p-3 text-left hover:border-brand disabled:opacity-60">
+                          {candidate.profile_image_url ? <img src={candidate.profile_image_url} alt="" className="h-12 w-12 rounded-full object-cover" /> : <div className="grid h-12 w-12 rounded-full bg-muted text-sm font-bold">{candidate.name?.slice(0, 1)}</div>}
+                          <div className="min-w-0 flex-1"><div className="truncate font-bold">{candidate.name}</div><div className="text-xs text-muted-foreground">★ {Number(candidate.rating ?? 0).toFixed(1)} · {candidate.distance_km == null ? "Distance unavailable" : `${Number(candidate.distance_km).toFixed(1)} km away`}</div></div>
+                          {timeoutBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <span className="text-xs font-bold text-brand">Select</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

@@ -23,7 +23,21 @@ export async function requestNotificationPermissionIfNeeded() {
 
 export function fireNotification(title: string, body: string, tag?: string) {
   if (!notificationsSupported() || Notification.permission !== "granted") return;
-  try {
-    new Notification(title, { body, tag, icon: "/favicon.ico", badge: "/favicon.ico" });
-  } catch {}
+  const options: NotificationOptions = {
+    body,
+    tag,
+    icon: "/images/champs/champs-logo.png",
+    badge: "/favicon.ico",
+    data: { url: typeof window === "undefined" ? "/" : window.location.href },
+  };
+  if ("serviceWorker" in navigator) {
+    void navigator.serviceWorker
+      .register("/notification-sw.js")
+      .then((registration) => registration.showNotification(title, options))
+      .catch(() => {
+        try { new Notification(title, options); } catch {}
+      });
+    return;
+  }
+  try { new Notification(title, options); } catch {}
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Send, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { UnreadMessageBadge } from "@/components/UnreadMessageBadge";
 
 type ChatMessage = {
   id: string;
@@ -115,8 +116,8 @@ export function ChatDialog({ orderId, driverId, conversationId: requestedConvers
 
   return (
     <>
-      {!hideTrigger && <button type="button" onClick={() => setOpen(true)} className={className || "inline-flex items-center justify-center gap-2 rounded-full border px-3 py-2 text-sm font-bold"}>
-        <MessageCircle className="h-4 w-4" /> {label}
+      {!hideTrigger && <button type="button" onClick={() => setOpen(true)} className={`${className || "inline-flex items-center justify-center gap-2 rounded-full border px-3 py-2 text-sm font-bold"} relative`}>
+        <MessageCircle className="h-4 w-4" /> {label}<UnreadMessageBadge orderId={orderId} conversationType={audience === "champs" || (!orderId && Boolean(driverId)) ? "driver_admin" : "customer_driver"} />
       </button>}
       {open && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={label}>

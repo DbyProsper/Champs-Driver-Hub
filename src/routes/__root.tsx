@@ -17,6 +17,7 @@ import { CartProvider } from "@/lib/cart";
 import { BranchProvider } from "@/lib/branch";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader } from "@/components/Loader";
+import { BrowserNotificationBridge } from "@/components/BrowserNotificationBridge";
 
 function NotFoundComponent() {
   return (
@@ -69,6 +70,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/74d2f8c6-7ced-4cf4-a77c-4f015efadaa3" },
     ],
     links: [
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/images/champs/champs-logo.png" },
       { rel: "stylesheet", href: appCss },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
@@ -125,6 +128,7 @@ function RootComponent() {
       <BranchProvider>
         <CartProvider>
           <Loader visible={showLoader} />
+          <BrowserNotificationBridge />
           <Outlet />
           <Toaster richColors position="top-center" />
         </CartProvider>

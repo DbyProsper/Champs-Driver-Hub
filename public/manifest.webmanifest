@@ -1,0 +1,17 @@
+{
+  "name": "Champs Chicken",
+  "short_name": "Champs",
+  "description": "Order tracking and driver delivery updates from Champs Chicken.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf7",
+  "theme_color": "#e21b23",
+  "icons": [
+    {
+      "src": "/images/champs/champs-logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

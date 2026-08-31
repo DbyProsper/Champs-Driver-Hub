@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { fireNotification } from "@/lib/notifications";
 import { useNavigate } from "@tanstack/react-router";
 import { getAccessRole } from "@/lib/roles";
 
@@ -42,7 +41,6 @@ export function NotificationCenter() {
         const item = payload.new as AppNotification;
         setItems((current) => [item, ...current]);
         toast.info(item.message);
-        fireNotification("Champs Chicken", item.message, `notification-${item.id}`);
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, () => void load())
       .subscribe();

@@ -10,7 +10,7 @@ type Suggestion = {
 
 let mapsLoaderPromise: Promise<any> | null = null;
 
-function loadMaps(): Promise<any> {
+export function loadGoogleMaps(): Promise<any> {
   if (typeof window === "undefined") return Promise.reject(new Error("SSR"));
   const w = window as Window & typeof globalThis & { google?: any; __champsMapsCb?: () => void };
   if (w.google?.maps) return Promise.resolve(w.google);
@@ -51,7 +51,7 @@ export function AddressAutocomplete({
   const requestRef = useRef(0);
 
   useEffect(() => {
-    loadMaps().catch(() => {});
+    loadGoogleMaps().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -72,7 +72,7 @@ export function AddressAutocomplete({
       const requestId = ++requestRef.current;
       try {
         setLoading(true);
-        const g = await loadMaps();
+        const g = await loadGoogleMaps();
         const places = (await g.maps.importLibrary("places")) as any;
         if (!tokenRef.current) tokenRef.current = new places.AutocompleteSessionToken();
 
@@ -134,7 +134,7 @@ export function AddressAutocomplete({
     setOpen(false);
     setSuggestions([]);
     try {
-      const g = await loadMaps();
+      const g = await loadGoogleMaps();
       const places = (await g.maps.importLibrary("places")) as any;
       const placeId = s.placeId;
       if (!placeId) throw new Error("No place selected");

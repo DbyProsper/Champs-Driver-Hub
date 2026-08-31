@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp, Printer, Flag, LockKeyhole, Menu as MenuIcon, X, Loader2 } from "lucide-react";
+import { LogOut, RefreshCw, Bike, Package, CheckCircle2, ChefHat, Clock, XCircle, Utensils, Sparkles, ShieldCheck, MessageCircle, Paintbrush, PanelLeftClose, PanelLeftOpen, TrendingUp, Printer, Flag, LockKeyhole, Menu as MenuIcon, X, Loader2, Power } from "lucide-react";
 import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
@@ -17,6 +17,7 @@ import { ChatDialog } from "@/components/ChatDialog";
 import { printOrderReceipt } from "@/lib/receipt";
 import { sendOrderEventEmail } from "@/lib/order-email";
 import { UnreadNavigationBadge } from "@/components/UnreadNavigationBadge";
+import { UnreadMessageBadge } from "@/components/UnreadMessageBadge";
 
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({ meta: [{ title: "Admin — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -83,13 +84,15 @@ function Admin() {
   const [driverNames, setDriverNames] = useState<Record<string, string>>({});
   const [manualPeak, setManualPeak] = useState<boolean>(false);
   const [pickupEnabled, setPickupEnabled] = useState<boolean>(true);
+  const [onlineOrderingOpen, setOnlineOrderingOpen] = useState(true);
+  const [shopToggleBusy, setShopToggleBusy] = useState(false);
   const [duePromptOrder, setDuePromptOrder] = useState<Order | null>(null);
   const [reports, setReports] = useState<DriverReport[]>([]);
   const prevIdsRef = useRef<Set<string>>(new Set());
   const prevStatusRef = useRef<Record<string, string>>({});
 
   async function load() {
-    const [{ data: os }, { data: deliveryRows }, { data: settingRow }, { data: reportRows }] = await Promise.all([
+    const [{ data: os }, { data: deliveryRows }, { data: settingRow }, { data: reportRows }, { data: shopRow }] = await Promise.all([
       supabase
         .from("orders")
         .select("*")
@@ -98,7 +101,9 @@ function Admin() {
       supabase.from("deliveries").select("order_id, status, driver_id"),
       (supabase.from("delivery_settings") as any).select("manual_peak_mode,pickup_enabled,base_prep_min,auto_ready_mode").eq("id", "default").maybeSingle(),
       (supabase as any).from("driver_reports").select("id,order_id,driver_id,reason,details,status,created_at").in("status", ["open","reviewing"]).order("created_at", { ascending: false }),
+      (supabase.from("site_settings") as any).select("online_ordering_open").eq("id", "main").maybeSingle(),
     ]);
+    setOnlineOrderingOpen(shopRow?.online_ordering_open !== false);
     setManualPeak(Boolean((settingRow as any)?.manual_peak_mode));
     setPickupEnabled((settingRow as any)?.pickup_enabled !== false);
     setReports((reportRows ?? []) as DriverReport[]);
@@ -194,6 +199,7 @@ function Admin() {
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "driver_reports" }, () => load())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings", filter: "id=eq.main" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [role]);
@@ -311,6 +317,18 @@ function Admin() {
     } catch (err: any) {
       toast.error(err.message ?? "Could not toggle peak mode");
     }
+  }
+
+  async function toggleOnlineOrdering() {
+    if (shopToggleBusy) return;
+    setShopToggleBusy(true);
+    const next = !onlineOrderingOpen;
+    const { error } = await (supabase.from("site_settings") as any).update({ online_ordering_open: next }).eq("id", "main");
+    setShopToggleBusy(false);
+    if (error) return toast.error(error.message);
+    setOnlineOrderingOpen(next);
+    toast.success(next ? "Online shop opened" : "Online shop closed — checkout is now disabled");
+    void logAdminAction({ action_type: "online_shop_toggled", action_description: next ? "Opened online ordering" : "Closed online ordering", target_type: "site_settings", target_id: "main", metadata: { online_ordering_open: next } });
   }
 
   async function togglePickup() {
@@ -434,7 +452,7 @@ function Admin() {
                 <Link to="/admin/audit-trail" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}>
                   <ShieldCheck className="h-4 w-4" /> {!sidebarCollapsed && "Audit Trail"}
                 </Link>
-                <Link to="/admin/messages" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><MessageCircle className="h-4 w-4" /> {!sidebarCollapsed && "Driver Messages"}<UnreadNavigationBadge types={["new_message"]} /></Link>
+                <Link to="/admin/messages" className={`relative flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><MessageCircle className="h-4 w-4" /> {!sidebarCollapsed && "Driver Messages"}<UnreadMessageBadge conversationType="driver_admin" /></Link>
                 <Link to="/admin/complaints" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><Flag className="h-4 w-4" /> {!sidebarCollapsed && "Complaints"}<UnreadNavigationBadge types={["complaint_update", "driver_report"]} /></Link>
                 <Link to="/admin/security" className={`flex items-center rounded-md py-2 text-sm font-semibold hover:bg-accent ${sidebarCollapsed ? "justify-center px-2" : "gap-2 px-3"}`}><LockKeyhole className="h-4 w-4" /> {!sidebarCollapsed && "Security"}</Link>
               </nav>
@@ -463,6 +481,11 @@ function Admin() {
                           </button>
                         </form>
                       )}
+
+        {role === "admin" && <div className={`mb-4 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${onlineOrderingOpen ? "border-emerald-500/30 bg-emerald-50/60" : "border-amber-500/40 bg-amber-50"}`}>
+          <div><div className="text-sm font-bold">Online shop is {onlineOrderingOpen ? "open" : "closed"}</div><div className="text-xs text-muted-foreground">{onlineOrderingOpen ? "Customers can place pickup and delivery orders." : "Checkout is blocked until an administrator reopens it."}</div></div>
+          <button type="button" onClick={() => void toggleOnlineOrdering()} disabled={shopToggleBusy} className={`inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-xs font-bold disabled:opacity-60 ${onlineOrderingOpen ? "bg-foreground text-background" : "bg-emerald-600 text-white"}`}>{shopToggleBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}{onlineOrderingOpen ? "Close online shop" : "Open online shop"}</button>
+        </div>}
 
                       {/* Branch filter */}
         <div className="mb-3 flex flex-wrap gap-2 items-center">

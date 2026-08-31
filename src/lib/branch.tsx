@@ -56,7 +56,7 @@ export function BranchProvider({ children }: { children: ReactNode }) {
         .eq("is_active", true)
         .order("sort_order");
       if (cancelled) return;
-      const list = (data as Branch[]) ?? [];
+      const list = (data as unknown as Branch[]) ?? [];
       setBranches(list);
 
       let saved: string | null = null;

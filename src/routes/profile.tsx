@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Bell, Flag, Save, X } from "lucide-react";
+import { ArrowLeft, Bell, Flag, MapPinned, Save, X } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
 import { PasswordChangeForm } from "@/components/PasswordChangeForm";
@@ -9,6 +9,8 @@ import { getAccessRole } from "@/lib/roles";
 import { requestNotificationPermission } from "@/lib/notifications";
 import { toast } from "sonner";
 import { ComplaintThread } from "@/components/ComplaintThread";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { LocationPickerDialog } from "@/components/LocationPickerDialog";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -43,13 +45,14 @@ const defaultPreferences: Preferences = {
 function ProfileSettings() {
   const navigate = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
-  const [profile, setProfile] = useState({ full_name: "", phone: "" });
+  const [profile, setProfile] = useState<{ full_name: string; phone: string; home_address: string; home_lat: number | null; home_lng: number | null }>({ full_name: "", phone: "", home_address: "", home_lat: null, home_lng: null });
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [orders, setOrders] = useState<OrderOption[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [selected, setSelected] = useState<Complaint | null>(null);
   const [form, setForm] = useState({ order_id: "", category: "service", subject: "", details: "" });
   const [busy, setBusy] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
 
   const load = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -73,7 +76,7 @@ function ProfileSettings() {
       { data: orderRows },
       { data: complaintRows },
     ] = await Promise.all([
-      supabase.from("profiles").select("full_name,phone").eq("id", auth.user.id).maybeSingle(),
+      (supabase.from("profiles") as any).select("full_name,phone,home_address,home_lat,home_lng").eq("id", auth.user.id).maybeSingle(),
       (supabase as any)
         .from("user_notification_preferences")
         .select("in_app_enabled,browser_enabled,order_updates,message_alerts")
@@ -82,7 +85,7 @@ function ProfileSettings() {
       (supabase as any)
         .from("orders")
         .select("id,order_number,driver_id")
-        .eq("customer_id", auth.user.id)
+        .eq("user_id", auth.user.id)
         .order("created_at", { ascending: false }),
       (supabase as any)
         .from("customer_complaints")
@@ -90,7 +93,7 @@ function ProfileSettings() {
         .eq("customer_id", auth.user.id)
         .order("created_at", { ascending: false }),
     ]);
-    setProfile({ full_name: profileRow?.full_name ?? "", phone: profileRow?.phone ?? "" });
+    setProfile({ full_name: profileRow?.full_name ?? "", phone: profileRow?.phone ?? "", home_address: profileRow?.home_address ?? "", home_lat: profileRow?.home_lat ?? null, home_lng: profileRow?.home_lng ?? null });
     setPreferences(preferenceRow ?? defaultPreferences);
     setOrders((orderRows ?? []) as OrderOption[]);
     setComplaints((complaintRows ?? []) as Complaint[]);
@@ -108,6 +111,9 @@ function ProfileSettings() {
       .update({
         full_name: profile.full_name.trim() || null,
         phone: profile.phone.trim() || null,
+        home_address: profile.home_address.trim() || null,
+        home_lat: profile.home_address.trim() ? profile.home_lat : null,
+        home_lng: profile.home_address.trim() ? profile.home_lng : null,
       } as never)
       .eq("id", userId);
     if (error) toast.error(error.message);
@@ -171,6 +177,18 @@ function ProfileSettings() {
               placeholder="Full name"
               className="w-full rounded-xl border px-3 py-2 text-sm"
             />
+            <div className="pt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">Saved home address</div>
+            <AddressAutocomplete
+              value={profile.home_address}
+              onChange={(value) => setProfile((current) => ({ ...current, home_address: value, home_lat: null, home_lng: null }))}
+              onSelect={({ address, lat, lng }) => setProfile((current) => ({ ...current, home_address: address, home_lat: lat, home_lng: lng }))}
+              placeholder="Start typing your home address"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => setMapOpen(true)} className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-bold"><MapPinned className="h-4 w-4" /> Pin home on map</button>
+              {profile.home_address && <button type="button" onClick={() => setProfile((current) => ({ ...current, home_address: "", home_lat: null, home_lng: null }))} className="rounded-full border px-3 py-2 text-xs font-semibold text-muted-foreground">Clear home</button>}
+            </div>
+            {profile.home_address && <div className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">{profile.home_address}{profile.home_lat != null ? " · Precise pin saved" : " · Select a suggestion or pin the map for precise delivery"}</div>}
             <input
               value={profile.phone}
               onChange={(event) => setProfile({ ...profile, phone: event.target.value })}
@@ -288,6 +306,7 @@ function ProfileSettings() {
         <PasswordChangeForm />
       </main>
       {selected && <ComplaintThread complaint={selected} onClose={() => setSelected(null)} />}
+      <LocationPickerDialog open={mapOpen} initial={profile.home_lat != null && profile.home_lng != null ? { lat: profile.home_lat, lng: profile.home_lng } : null} onClose={() => setMapOpen(false)} onConfirm={(location) => { setProfile((current) => ({ ...current, home_address: location.address, home_lat: location.lat, home_lng: location.lng })); setMapOpen(false); }} />
       <BottomNav />
     </div>
   );
