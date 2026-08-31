@@ -322,13 +322,16 @@ function DeliveriesPage() {
             {drivers.length === 0 && <div className="py-6 text-center text-sm text-muted-foreground">No drivers yet.</div>}
             {drivers.map((d) => (
               <div key={d.id} className="space-y-2 rounded-2xl border border-muted/30 p-3">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 items-center gap-3">
                   <button type="button" onClick={() => void openDriver(d)} className="shrink-0 rounded-full" aria-label={`View ${d.name}'s information`}>{d.profile_image_url ? <img src={d.profile_image_url} alt={d.name} className="h-11 w-11 rounded-full object-cover" /> : <span className="grid h-11 w-11 place-items-center rounded-full bg-muted font-display text-brand">{d.name.slice(0,1)}</span>}</button>
                   <button type="button" onClick={() => void openDriver(d)} className="min-w-0 flex-1 text-left">
                     <div className="font-semibold text-sm">{d.name}</div>
                     <div className="text-xs text-muted-foreground inline-flex items-center gap-1"><Phone className="h-3 w-3" /> {d.phone}{d.branch_id && branches[d.branch_id] ? ` · ${branches[d.branch_id].name}` : ""}</div>
                     <div className="text-[11px] text-muted-foreground">★ {Number(d.rating ?? 0).toFixed(1)} · {d.rating_count ?? 0} reviews</div>
                   </button>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
                   <select value={d.branch_id ?? ""} onChange={async (e) => {
                     const { error } = await supabase.from("drivers").update({ branch_id: e.target.value || null } as never).eq("id", d.id);
                     if (error) toast.error(error.message);
@@ -337,12 +340,13 @@ function DeliveriesPage() {
                       toast.success("Driver branch updated");
                       void logAdminAction({ action_type: "driver_profile_updated", action_description: `Updated branch for driver ${d.name}`, target_type: "driver", target_id: d.id, metadata: { before_branch_id: d.branch_id, after_branch_id: e.target.value || null } });
                     }
-                  }} className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
+                  }} className="min-w-0 flex-1 rounded-xl border border-input bg-background px-3 py-2 text-sm sm:w-36 sm:flex-none">
                     <option value="">No branch</option>
                     {Object.values(branches).map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                   <span className={"rounded-full px-2 py-0.5 text-[10px] font-bold uppercase " + (d.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground")}>{d.approval_status ?? d.status}</span>
                   <button type="button" onClick={() => void openDriver(d)} className="rounded-full border px-3 py-1.5 text-xs font-bold text-brand">View</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -350,7 +354,7 @@ function DeliveriesPage() {
         </section>
 
         <section className="rounded-2xl border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="mb-3 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-display text-lg text-brand">Active deliveries ({activeDeliveries.length})</h2>
             <button
               onClick={autoBatch}
@@ -366,7 +370,7 @@ function DeliveriesPage() {
               const o = orders[d.order_id];
               const b = o ? branches[o.branch_id] : null;
               return (
-                <div key={d.id} className="rounded-xl border p-3 flex flex-wrap items-center gap-3">
+                <div key={d.id} className="grid gap-3 rounded-xl border p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-sm flex items-center gap-2">
                       {d.queue_position != null && <span className="rounded-full bg-brand text-brand-foreground text-[10px] font-bold px-2 py-0.5">#{d.queue_position}</span>}
@@ -379,7 +383,7 @@ function DeliveriesPage() {
                     </div>
                   </div>
                   <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-bold uppercase text-brand">{DELIVERY_STATUS_LABEL[d.status] ?? d.status}</span>
-                  <select value={d.driver_id ?? ""} onChange={(e) => assignDriver(d.id, e.target.value || null)} className="rounded-xl border border-input bg-background px-3 py-2 text-sm">
+                  <select value={d.driver_id ?? ""} onChange={(e) => assignDriver(d.id, e.target.value || null)} className="w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2 text-sm sm:w-44">
                     <option value="">Unassigned</option>
                     {drivers.filter((dr) => dr.approval_status === "approved").map((dr) => <option key={dr.id} value={dr.id}>{dr.name}</option>)}
                   </select>

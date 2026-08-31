@@ -87,6 +87,14 @@ const DELIVERY_STATUS_LABEL: Record<string, string> = {
 };
 const PICKUP_STEPS = ["pending", "preparing", "ready", "completed"] as const;
 const DELIVERY_STEPS = ["pending", "preparing", "ready", "handed_to_driver", "out_for_delivery", "completed"] as const;
+const DELIVERY_STATUS_SHORT_LABEL: Record<string, string> = {
+  pending: "Received",
+  preparing: "Prep",
+  ready: "Ready",
+  handed_to_driver: "Handoff",
+  out_for_delivery: "Out",
+  completed: "Delivered",
+};
 
 
 function OrderPage() {
@@ -269,11 +277,13 @@ function OrderPage() {
               ))}
             </div>
             <div
-              className="mt-2 grid text-[10px] font-semibold text-muted-foreground uppercase tracking-wider text-center"
+              className="mt-2 grid gap-1 text-center text-[9px] font-semibold uppercase leading-tight text-muted-foreground sm:text-[10px] sm:tracking-wider"
               style={{ gridTemplateColumns: `repeat(${STATUS_STEPS.length}, minmax(0, 1fr))` }}
             >
               {STATUS_STEPS.map((s) => (
-                <div key={s}>{STATUS_LABEL[s] ?? s}</div>
+                <div key={s} className="min-w-0">
+                  {isDelivery ? <><span className="sm:hidden">{DELIVERY_STATUS_SHORT_LABEL[s] ?? s}</span><span className="hidden sm:inline">{STATUS_LABEL[s] ?? s}</span></> : (STATUS_LABEL[s] ?? s)}
+                </div>
               ))}
             </div>
           </div>

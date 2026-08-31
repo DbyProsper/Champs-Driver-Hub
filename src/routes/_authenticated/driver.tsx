@@ -213,6 +213,7 @@ function DriverPage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "deliveries" }, () => { void load(false); })
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "deliveries" }, () => { void load(false); })
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => { void load(false); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => { void load(false); })
       .subscribe((status) => {
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn("Driver realtime channel unavailable", status);
@@ -265,9 +266,10 @@ function DriverPage() {
     const { error } = await supabase.from("deliveries").update(patch as never).eq("id", id);
     if (error) {
       toast.error(error.message);
-      return;
+      return false;
     }
-    load();
+    void load(false);
+    return true;
   }
 
   async function accept(d: Delivery) {
@@ -276,13 +278,13 @@ function DriverPage() {
       .filter((x) => x.driver_id === driver.id && x.status !== "delivered")
       .map((x) => x.queue_position ?? 0);
     const nextPos = (currentPositions.length ? Math.max(...currentPositions) : 0) + 1;
-    await updateDelivery(d.id, { driver_id: driver.id, status: "accepted", queue_position: nextPos });
-    const { error: orderError } = await supabase.from("orders").update({ driver_id: driver.id } as never).eq("id", d.order_id);
-    if (orderError) {
-      toast.error(orderError.message || "Could not attach the order to your driver record");
-      return;
-    }
-    await (supabase.from("orders") as any).update({ workflow_status: "accepted_by_driver", driver_confirmed_at: new Date().toISOString() }).eq("id", d.order_id);
+    const accepted = await updateDelivery(d.id, { driver_id: driver.id, status: "accepted", queue_position: nextPos });
+    if (!accepted) return;
+    const { error: orderError } = await (supabase.from("orders") as any)
+      .update({ workflow_status: "accepted_by_driver", driver_confirmed_at: new Date().toISOString() })
+      .eq("id", d.order_id)
+      .eq("driver_id", driver.id);
+    if (orderError) return toast.error(orderError.message || "Could not confirm the accepted order");
     void sendOrderEventEmail(d.order_id, "accepted");
     toast.success("Order accepted — get moving and keep it safe");
     setTab("active");
@@ -542,7 +544,7 @@ function DriverPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-display text-lg text-brand truncate flex items-center gap-2">
-                    {d.queue_position != null && (
+                    {tab !== "history" && d.queue_position != null && (
                       <span className="rounded-full bg-brand text-brand-foreground text-[10px] font-bold px-2 py-0.5">#{d.queue_position}</span>
                     )}
                     {o?.customer_name ?? "Customer"}
@@ -568,7 +570,7 @@ function DriverPage() {
                   <span className="font-semibold text-foreground">#{o.order_number}</span>
                 </div>
               )}
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><Package className="h-3.5 w-3.5" /> {its.reduce((s, r) => s + r.quantity, 0)} items</span>
                 {d.distance_km != null && <span>· {Number(d.distance_km).toFixed(1)} km</span>}
                 <span>· Fee <span className="font-bold text-foreground">{formatZAR(d.delivery_fee_cents)}</span></span>
