@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bike, Phone, MapPin, Loader2, LogOut, RefreshCw, Package, Navigation as NavIcon, CheckCircle2, Landmark, CreditCard, Settings2, Eye, XCircle, Upload, MessageCircle, CircleHelp, X, Bell } from "lucide-react";
+import { Bike, Phone, MapPin, Loader2, LogOut, RefreshCw, Package, CheckCircle2, Landmark, CreditCard, Settings2, Eye, XCircle, Upload, MessageCircle, CircleHelp, X, Bell } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -200,20 +200,16 @@ function DriverPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!driver?.id) return;
     const channel = supabase
-      .channel("driver-deliveries")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "deliveries" }, (payload) => {
-        const delivery = payload.new as Partial<Delivery>;
-        if (delivery.id && delivery.status !== "delivered" && delivery.status !== "cancelled") {
-          toast.success("New delivery available");
-        }
-        void load(false);
-      })
+      .channel(`driver-deliveries:${driver.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "deliveries" }, () => { void load(false); })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "deliveries" }, () => { void load(false); })
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "deliveries" }, () => { void load(false); })
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => { void load(false); })
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => { void load(false); })
       .subscribe((status) => {
+        if (status === "SUBSCRIBED") void load(false);
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn("Driver realtime channel unavailable", status);
         }
@@ -221,18 +217,20 @@ function DriverPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [load]);
+  }, [driver?.id, load]);
 
   useEffect(() => {
-    if (!driver) return;
-    const handoff = deliveries.find((d) => d.driver_id === driver.id && d.status === "handed_to_driver");
-    if (handoff) {
-      const order = orders[handoff.order_id];
-      if (order?.pickup_pin) {
-        toast.success(`Driver handoff: collect order ${order.order_number} now`);
-      }
-    }
-  }, [driver, deliveries, orders]);
+    const syncAfterReconnect = () => void load(false);
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void load(false);
+    };
+    window.addEventListener("online", syncAfterReconnect);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    return () => {
+      window.removeEventListener("online", syncAfterReconnect);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+    };
+  }, [load]);
 
   const available = useMemo(() => deliveries.filter((d) => (d.driver_id === null || (driver && d.driver_id === driver.id && d.status === "pending_driver_acceptance")) && d.status !== "delivered" && d.status !== "cancelled"), [deliveries, driver]);
   const active = useMemo(() => (driver ? deliveries.filter((d) => d.driver_id === driver.id && d.status !== "pending_driver_acceptance" && d.status !== "delivered" && d.status !== "cancelled") : []), [deliveries, driver]);
@@ -549,9 +547,7 @@ function DriverPage() {
           const o = orders[d.order_id];
           const b = o ? branches[o.branch_id] : null;
           const its = items[d.order_id] ?? [];
-          const mapsHref = o?.delivery_lat && o?.delivery_lng
-            ? `https://www.google.com/maps/dir/?api=1&destination=${o.delivery_lat},${o.delivery_lng}${b?.latitude && b?.longitude ? `&origin=${b.latitude},${b.longitude}` : ""}`
-            : o?.delivery_address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(o.delivery_address)}` : null;
+          const showCustomerPrivateDetails = tab !== "history" && !["delivered", "cancelled"].includes(d.status);
           return (
             <div key={d.id} className="rounded-2xl border bg-card p-4 shadow-sm space-y-3">
               <div className="flex items-start justify-between gap-3">
@@ -567,7 +563,7 @@ function DriverPage() {
                 <span className="rounded-full bg-brand/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-brand">{DELIVERY_STATUS_LABEL[d.status] ?? d.status}</span>
               </div>
 
-              {o?.delivery_address && (
+              {showCustomerPrivateDetails && o?.delivery_address && (
                 <div className="flex items-start gap-2 text-sm">
                   <MapPin className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
                   <div className="min-w-0">
@@ -577,7 +573,7 @@ function DriverPage() {
                 </div>
               )}
 
-              {o?.delivery_address && (
+              {showCustomerPrivateDetails && o?.delivery_address && (
                 <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground inline-flex items-center gap-2">
                   <MapPin className="h-3.5 w-3.5 shrink-0" />
                   <span className="font-semibold text-foreground">#{o.order_number}</span>
@@ -597,18 +593,13 @@ function DriverPage() {
               )}
 
               <div className="grid grid-cols-2 gap-2">
-                {o?.customer_phone && (
+                {showCustomerPrivateDetails && o?.customer_phone && (
                   <a href={`tel:${o.customer_phone}`} className="rounded-xl border px-3 py-3 text-sm font-bold inline-flex items-center justify-center gap-2">
                     <Phone className="h-4 w-4" /> Call
                   </a>
                 )}
                 {tab === "active" && o?.customer_phone && (
                   <a href={`https://wa.me/${o.customer_phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi ${o.customer_name}, I’m your Champs driver for order ${o.order_number}. I have received your order and will keep you updated here.`)}`} target="_blank" rel="noreferrer" className="rounded-xl bg-[#25D366] px-3 py-3 text-sm font-bold text-white inline-flex items-center justify-center gap-2"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
-                )}
-                {mapsHref && !["picked_up", "on_the_way"].includes(d.status) && (
-                  <a href={mapsHref} target="_blank" rel="noreferrer" className="rounded-xl border px-3 py-3 text-sm font-bold inline-flex items-center justify-center gap-2">
-                    <NavIcon className="h-4 w-4" /> Maps
-                  </a>
                 )}
               </div>
               {o?.pickup_pin && (

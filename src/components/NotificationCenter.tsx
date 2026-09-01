@@ -22,7 +22,7 @@ export function NotificationCenter() {
     if (!authData.user) { setItems([]); return; }
     setRole(await getAccessRole(authData.user.id));
     const { data } = await (supabase as any).from("notifications").select("id,type,message,order_id,conversation_id,read_status,created_at").eq("user_id", authData.user.id).order("created_at", { ascending: false }).limit(50);
-    setItems((data ?? []) as AppNotification[]);
+    setItems(Array.from(new Map(((data ?? []) as AppNotification[]).map((item) => [item.id, item])).values()));
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -39,8 +39,8 @@ export function NotificationCenter() {
     const channel = supabase.channel(`notifications:${userId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, (payload) => {
         const item = payload.new as AppNotification;
-        setItems((current) => [item, ...current]);
-        toast.info(item.message);
+        setItems((current) => current.some((entry) => entry.id === item.id) ? current : [item, ...current]);
+        toast.info(item.message, { id: `app-notification-${item.id}` });
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` }, () => void load())
       .subscribe();

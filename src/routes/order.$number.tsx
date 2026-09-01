@@ -7,7 +7,6 @@ import { Header } from "@/components/Header";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { notificationPermission, requestNotificationPermission } from "@/lib/notifications";
-import { waLink, orderStatusMessage } from "@/lib/whatsapp";
 import { PAYMENT_STATUS_LABEL, resolveOrderDisplayStatus } from "@/lib/delivery";
 import { toast } from "sonner";
 import { submitDeliveryPayment } from "@/lib/admin.functions";
@@ -125,6 +124,8 @@ function OrderPage() {
     ? "out_for_delivery"
     : effectiveStatus;
   const effectiveDriverId = data?.delivery?.driver_id ?? data?.order.driver_id ?? null;
+  const ratingOrderId = data?.order.id;
+  const ratingOrderWorkflowStatus = data?.order.workflow_status;
   const STATUS_LABEL = isDelivery ? DELIVERY_STATUS_LABEL : PICKUP_STATUS_LABEL;
   const STATUS_STEPS = isDelivery ? DELIVERY_STEPS : PICKUP_STEPS;
 
@@ -137,23 +138,16 @@ function OrderPage() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `id=eq.${data.order.id}` }, (payload) => {
         const newStatus = (payload.new as any).status as string;
         if (prevStatus.current && newStatus !== prevStatus.current) {
-          const label = STATUS_LABEL[newStatus] ?? newStatus;
-          toast.success(`Order update: ${label}`);
           prevStatus.current = newStatus;
         }
         refetch();
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries", filter: `order_id=eq.${data.order.id}` }, (payload) => {
-        const status = (payload.new as any)?.status as string | undefined;
-        if (status) {
-          const label = DELIVERY_STATUS_LABEL[status] ?? status;
-          toast.success(`Order update: ${label}`);
-        }
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries", filter: `order_id=eq.${data.order.id}` }, () => {
         refetch();
       })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [data?.order.id, data?.order.order_number, refetch, STATUS_LABEL]);
+  }, [data?.order.id, data?.order.status, refetch]);
 
   useEffect(() => {
     const deadline = data?.delivery?.assign_deadline_at ? new Date(data.delivery.assign_deadline_at).getTime() : 0;
@@ -180,15 +174,15 @@ function OrderPage() {
   }, [data?.delivery?.assign_deadline_at, data?.delivery?.status, data?.order.workflow_status, effectiveDriverId, isDelivery, timeoutSnoozeUntil]);
 
   useEffect(() => {
-    const delivered = isDelivery && data?.order && (data.order.workflow_status === "delivered" || visibleStatus === "completed");
-    if (!delivered || !data?.order.id || ratingSubmitted) return;
+    const delivered = isDelivery && (ratingOrderWorkflowStatus === "delivered" || visibleStatus === "completed");
+    if (!delivered || !ratingOrderId || ratingSubmitted) return;
     let active = true;
     void (async () => {
-      const { data: existing } = await (supabase as any).from("driver_ratings").select("id").eq("order_id", data.order.id).maybeSingle();
+      const { data: existing } = await (supabase as any).from("driver_ratings").select("id").eq("order_id", ratingOrderId).maybeSingle();
       if (active && !existing) setRatingOpen(true);
     })();
     return () => { active = false; };
-  }, [isDelivery, data?.order?.id, data?.order?.workflow_status, visibleStatus, ratingSubmitted]);
+  }, [isDelivery, ratingOrderId, ratingOrderWorkflowStatus, visibleStatus, ratingSubmitted]);
 
   async function enableNotifications() {
     const p = await requestNotificationPermission();
@@ -311,11 +305,12 @@ function OrderPage() {
   if (!data) return <div className="p-6 text-sm">Order not found.</div>;
   const { order, items, branch, delivery, driver, aheadCount } = data;
   const currentIdx = (STATUS_STEPS as readonly string[]).indexOf(visibleStatus);
-  const waText = orderStatusMessage(order.order_number, visibleStatus, order.customer_name);
   const verifyPayload = `champs:${order.order_number}:${order.pickup_pin}`;
   const d: any = delivery;
   const fullTotalCents = order.subtotal_cents + (order.delivery_fee_cents ?? d?.delivery_fee_cents ?? 0);
   const liveTrackingActive = d?.status === "on_the_way" || d?.status === "out_for_delivery";
+  const paymentAndDeliveryComplete = (visibleStatus === "completed" || d?.status === "delivered") && d?.payment_status === "paid";
+  const privatePaymentActionsVisible = visibleStatus !== "cancelled" && !paymentAndDeliveryComplete;
   const ratingLabels: Record<number, string> = { 5: "Excellent and fast service", 4: "Good", 3: "Moderate", 2: "Fair reliability", 1: "Poor" };
 
   return (
@@ -385,8 +380,8 @@ function OrderPage() {
               </div>
               <span className="rounded-full bg-brand/10 px-2 py-1 text-[10px] font-bold uppercase text-brand">{d?.status ?? "assigned"}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <ChatDialog orderId={order.id} label="Chat" className="inline-flex items-center justify-center gap-1 rounded-xl bg-brand px-2 py-2.5 text-xs font-bold text-brand-foreground" />
+            <div className={`grid gap-2 ${privatePaymentActionsVisible ? "grid-cols-3" : "grid-cols-2"}`}>
+              {privatePaymentActionsVisible && <ChatDialog orderId={order.id} label="Chat" className="inline-flex items-center justify-center gap-1 rounded-xl bg-brand px-2 py-2.5 text-xs font-bold text-brand-foreground" />}
               {driver?.phone && <a href={`https://wa.me/${driver.phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi, please confirm Champs order ${order.order_number}. The full amount (food + delivery) is ${formatZAR(fullTotalCents)}.`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#25D366] px-2 py-2.5 text-xs font-bold text-white"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</a>}
               {driver?.phone && <a href={`tel:${driver.phone}`} className="inline-flex items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-bold"><Phone className="h-3.5 w-3.5" /> Call</a>}
             </div>
@@ -401,7 +396,7 @@ function OrderPage() {
             ) : visibleStatus !== "completed" && visibleStatus !== "cancelled" ? (
               <div className="rounded-xl border border-dashed p-3 text-center text-xs text-muted-foreground">Live tracking will become available once your driver starts the delivery.</div>
             ) : null}
-            {(driver?.bank_name || driver?.bank_account_number) && (
+            {privatePaymentActionsVisible && (driver?.bank_name || driver?.bank_account_number) && (
               <div className="rounded-xl bg-muted/40 p-3 text-sm">
                 <div className="flex items-center gap-2 font-bold text-brand"><Landmark className="h-4 w-4" /> Pay your driver directly</div>
                 <div className="mt-2 space-y-1 text-xs">
@@ -523,10 +518,6 @@ function OrderPage() {
             <Bell className="h-4 w-4" /> Enable notifications for order updates
           </button>
         )}
-
-        <a href={waLink(branch?.phone, waText)} target="_blank" rel="noopener noreferrer" className="mt-3 flex items-center justify-center gap-2 rounded-full bg-[#25D366] py-3 text-sm font-bold text-white hover:opacity-90">
-          <MessageCircle className="h-4 w-4" /> Send confirmation on WhatsApp
-        </a>
 
         <div className="mt-6 rounded-xl border border-border bg-card p-4 text-sm space-y-3">
           <div>
