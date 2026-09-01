@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { submitDeliveryPayment } from "@/lib/admin.functions";
 import { ChatDialog } from "@/components/ChatDialog";
 import { ImagePreview } from "@/components/ImagePreview";
+import { CustomerLiveDeliveryMap } from "@/components/CustomerLiveDeliveryMap";
 
 const orderQuery = (number: string) =>
   queryOptions({
@@ -314,6 +315,7 @@ function OrderPage() {
   const verifyPayload = `champs:${order.order_number}:${order.pickup_pin}`;
   const d: any = delivery;
   const fullTotalCents = order.subtotal_cents + (order.delivery_fee_cents ?? d?.delivery_fee_cents ?? 0);
+  const liveTrackingActive = d?.status === "on_the_way" || d?.status === "out_for_delivery";
   const ratingLabels: Record<number, string> = { 5: "Excellent and fast service", 4: "Good", 3: "Moderate", 2: "Fair reliability", 1: "Poor" };
 
   return (
@@ -388,6 +390,17 @@ function OrderPage() {
               {driver?.phone && <a href={`https://wa.me/${driver.phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi, please confirm Champs order ${order.order_number}. The full amount (food + delivery) is ${formatZAR(fullTotalCents)}.`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 rounded-xl bg-[#25D366] px-2 py-2.5 text-xs font-bold text-white"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp</a>}
               {driver?.phone && <a href={`tel:${driver.phone}`} className="inline-flex items-center justify-center gap-1 rounded-xl border px-2 py-2.5 text-xs font-bold"><Phone className="h-3.5 w-3.5" /> Call</a>}
             </div>
+            {liveTrackingActive ? (
+              <CustomerLiveDeliveryMap
+                orderId={order.id}
+                orderNumber={order.order_number}
+                driverId={effectiveDriverId}
+                destinationLat={order.delivery_lat}
+                destinationLng={order.delivery_lng}
+              />
+            ) : visibleStatus !== "completed" && visibleStatus !== "cancelled" ? (
+              <div className="rounded-xl border border-dashed p-3 text-center text-xs text-muted-foreground">Live tracking will become available once your driver starts the delivery.</div>
+            ) : null}
             {(driver?.bank_name || driver?.bank_account_number) && (
               <div className="rounded-xl bg-muted/40 p-3 text-sm">
                 <div className="flex items-center gap-2 font-bold text-brand"><Landmark className="h-4 w-4" /> Pay your driver directly</div>

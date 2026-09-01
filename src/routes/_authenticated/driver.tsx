@@ -14,6 +14,7 @@ import { sendOrderEventEmail } from "@/lib/order-email";
 import { SA_BANKS } from "@/lib/sa-banks";
 import { PasswordChangeForm } from "@/components/PasswordChangeForm";
 import { ImagePreview } from "@/components/ImagePreview";
+import { DriverDeliveryMap } from "@/components/DriverDeliveryMap";
 
 export const Route = createFileRoute("/_authenticated/driver")({
   head: () => ({ meta: [{ title: "Driver — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -79,6 +80,7 @@ function DriverPage() {
   const [notificationConversationId, setNotificationConversationId] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  const [navigationDeliveryId, setNavigationDeliveryId] = useState<string | null>(null);
   const seenDeliveryIds = useRef<Set<string> | null>(null);
   const previousDeliveryStatuses = useRef<Record<string, string>>({});
 
@@ -344,7 +346,8 @@ function DriverPage() {
     const next = idx === -1 ? "picked_up" : flow[Math.min(idx + 1, flow.length - 1)];
     const patch: Partial<Delivery> = { status: next };
     if (next === "delivered") (patch as any).actual_delivery_time = new Date().toISOString();
-    await updateDelivery(d.id, patch);
+    const deliveryUpdated = await updateDelivery(d.id, patch);
+    if (!deliveryUpdated) return;
     const orderStatus = getOrderStatusForDeliveryStatus(next);
     if (orderStatus) {
       const workflowStatus = next === "picked_up" ? "picked_up" : next === "on_the_way" ? "out_for_delivery" : next === "delivered" ? "delivered" : undefined;
@@ -357,8 +360,10 @@ function DriverPage() {
       }
     }
     if (next === "on_the_way") {
+      setNavigationDeliveryId(d.id);
       toast.success("Stay sharp and keep the route moving");
     } else if (next === "delivered") {
+      setNavigationDeliveryId(null);
       void sendOrderEventEmail(d.order_id, "delivered");
       toast.success("Delivery complete — safe and on time");
     } else if (next === "accepted") {
@@ -600,7 +605,7 @@ function DriverPage() {
                 {tab === "active" && o?.customer_phone && (
                   <a href={`https://wa.me/${o.customer_phone.replace(/\D/g, "").replace(/^0/, "27")}?text=${encodeURIComponent(`Hi ${o.customer_name}, I’m your Champs driver for order ${o.order_number}. I have received your order and will keep you updated here.`)}`} target="_blank" rel="noreferrer" className="rounded-xl bg-[#25D366] px-3 py-3 text-sm font-bold text-white inline-flex items-center justify-center gap-2"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
                 )}
-                {mapsHref && (
+                {mapsHref && !["picked_up", "on_the_way"].includes(d.status) && (
                   <a href={mapsHref} target="_blank" rel="noreferrer" className="rounded-xl border px-3 py-3 text-sm font-bold inline-flex items-center justify-center gap-2">
                     <NavIcon className="h-4 w-4" /> Maps
                   </a>
@@ -627,6 +632,18 @@ function DriverPage() {
                     <span className="font-semibold text-foreground">Attached</span>
                   )}
                 </div>
+              )}
+
+              {tab === "active" && o && driver && ["picked_up", "on_the_way"].includes(d.status) && (
+                <DriverDeliveryMap
+                  driverId={driver.id}
+                  orderNumber={o.order_number}
+                  destinationLat={o.delivery_lat}
+                  destinationLng={o.delivery_lng}
+                  destinationAddress={o.delivery_address}
+                  trackingActive={d.status === "on_the_way" || navigationDeliveryId === d.id}
+                  driverOnline={driver.status === "active"}
+                />
               )}
 
                 {tab === "available" ? (
