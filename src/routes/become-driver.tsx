@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { requestDriverApplication } from "@/lib/admin.functions";
 import { toast } from "sonner";
 import { SA_BANKS } from "@/lib/sa-banks";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const MAX_DRIVER_IMAGE_BYTES = 2 * 1024 * 1024;
 type BranchOption = { id: string; name: string; city: string };
@@ -18,6 +19,7 @@ function BecomeDriver() {
   const nav = useNavigate();
   const [form, setForm] = useState({
     name: "",
+    username: "",
     phone: "",
     id_number: "",
     student_number: "",
@@ -47,6 +49,7 @@ function BecomeDriver() {
       setForm((current) => ({
         ...current,
         name: current.name || profile?.full_name || data.user.user_metadata?.full_name || data.user.user_metadata?.name || "",
+        username: current.username || profile?.full_name || data.user.user_metadata?.full_name || data.user.user_metadata?.name || "",
         phone: current.phone || profile?.phone || data.user.phone || data.user.user_metadata?.phone || "",
       }));
       setCheckingAuth(false);
@@ -85,7 +88,9 @@ function BecomeDriver() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.phone.trim()) return toast.error("Name and phone required");
+    if (form.name.trim().length < 2) return toast.error("Your full legal name is required");
+    if (form.username.trim().length < 2 || form.username.trim().length > 40) return toast.error("Username must be between 2 and 40 characters");
+    if (!form.phone.trim()) return toast.error("Phone number is required");
     if (!form.student_number.trim() && !/^\d{13}$/.test(form.id_number.trim())) return toast.error("Valid SA ID (13 digits) or driver's licence number required");
     if (!form.profile_file) return toast.error("A profile photo is required");
     if (form.profile_file.size > MAX_DRIVER_IMAGE_BYTES) return toast.error(imageSizeError(form.profile_file, "Profile photo"));
@@ -98,6 +103,7 @@ function BecomeDriver() {
       await requestDriverApplication({
         data: {
           name: form.name,
+          username: form.username,
           phone: form.phone,
           idNumber: form.id_number || undefined,
           studentNumber: form.student_number || undefined,
@@ -133,19 +139,21 @@ function BecomeDriver() {
             <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
             <span className="font-display text-lg text-brand">Driver application</span>
           </Link>
-          <div className="w-8" />
+          <ThemeToggle />
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-6">
         <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
           <h1 className="font-display text-2xl text-brand mb-2">Become a driver</h1>
+          <img src="/images/champs/champs-drivers.png" alt="Become a Champs driver" className="mb-4 aspect-[3/2] w-full rounded-2xl border object-cover" />
           <p className="text-sm text-muted-foreground">Upload your documents and banking details so Champs can review your application.</p>
         </div>
 
         <form onSubmit={submit} className="mt-6 space-y-4">
-          <input placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
-          <input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
+          <label className="block"><span className="mb-1 block text-xs font-semibold">Full legal name <span className="text-brand">*</span></span><input required autoComplete="name" placeholder="As it appears on your ID or licence" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" /></label>
+          <label className="block"><span className="mb-1 block text-xs font-semibold">Username shown to customers <span className="text-brand">*</span></span><input required minLength={2} maxLength={40} autoComplete="nickname" placeholder="The name customers will see" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" /><span className="mt-1 block text-[11px] text-muted-foreground">You can change this later in Driver Settings.</span></label>
+          <input required inputMode="tel" autoComplete="tel" placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="ID number (13 digits)" value={form.id_number} onChange={(e) => setForm({ ...form, id_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="Driver's licence number (use instead of ID)" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
 

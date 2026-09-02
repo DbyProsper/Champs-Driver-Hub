@@ -139,7 +139,7 @@ function Account() {
       if (it.menu_item_id) {
         const mi = menu?.items.find((m) => m.id === it.menu_item_id);
         if (mi && mi.is_available) {
-          add({ id: mi.id, name: mi.name, variant: mi.variant_label, unit_price_cents: mi.price_cents }, it.quantity);
+          add({ id: mi.id, name: mi.name, variant: mi.variant_label, unit_price_cents: mi.special_price_cents ?? mi.price_cents, image_url: mi.image_url, comes_with_drink: mi.comes_with_drink }, it.quantity);
           added++;
         }
       }
@@ -267,7 +267,7 @@ function Account() {
                 <button
                   key={it.id}
                   onClick={() => {
-                    add({ id: it.id, name: it.name, variant: it.variant_label, unit_price_cents: it.price_cents });
+                    add({ id: it.id, name: it.name, variant: it.variant_label, unit_price_cents: it.special_price_cents ?? it.price_cents, image_url: it.image_url, comes_with_drink: it.comes_with_drink });
                     toast.success(`Added ${it.name}`);
                   }}
                   className="text-left rounded-xl border border-border bg-card p-2 hover:border-brand"

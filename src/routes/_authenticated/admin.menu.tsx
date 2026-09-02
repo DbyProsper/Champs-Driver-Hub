@@ -29,6 +29,7 @@ type Item = {
   special_price_cents: number | null;
   burger_only_price_cents: number | null;
   icon_text: string | null;
+  comes_with_drink: boolean;
 };
 
 type Cat = { id: string; name: string; slug: string; sort_order: number };
@@ -39,7 +40,7 @@ function MenuAdmin() {
   const [cats, setCats] = useState<Cat[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>(FALLBACK_MEDIA);
   const [dirty, setDirty] = useState<Record<string, Partial<Item>>>({});
-  const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string }>>({});
+  const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string; comes_with_drink: boolean }>>({});
   const [newCat, setNewCat] = useState("");
   const [pickerFor, setPickerFor] = useState<string | null>(null);
 
@@ -85,12 +86,13 @@ function MenuAdmin() {
       variant_label: n.variant.trim() || null,
       price_cents: Math.round(Number(n.price) * 100),
       sort_order: maxSort + 10,
+      comes_with_drink: n.comes_with_drink,
     } as never);
     if (error) toast.error(error.message);
     else {
       toast.success("Item added");
       void logAdminAction({ action_type: "menu_item_created", action_description: `Created menu item ${n.name.trim()}`, target_type: "menu_item", metadata: { category_id: catId, price_cents: Math.round(Number(n.price) * 100), variant: n.variant.trim() || null } });
-      setNewItem({ ...newItem, [catId]: { name: "", variant: "", price: "" } });
+      setNewItem({ ...newItem, [catId]: { name: "", variant: "", price: "", comes_with_drink: false } });
       load();
     }
   }
@@ -142,7 +144,7 @@ function MenuAdmin() {
 
         {cats.map((c) => {
           const catItems = items.filter((i) => i.category_id === c.id).sort((a, b) => a.sort_order - b.sort_order);
-          const ni = newItem[c.id] ?? { name: "", variant: "", price: "" };
+          const ni = newItem[c.id] ?? { name: "", variant: "", price: "", comes_with_drink: false };
           return (
             <section key={c.id}>
               <h2 className="font-display text-2xl text-brand mb-2">{c.name}</h2>
@@ -180,6 +182,7 @@ function MenuAdmin() {
                         value={cur.variant_label ?? ""}
                         onChange={(e) => edit(it.id, { variant_label: e.target.value || null })}
                       />
+                      <label className="space-y-1 text-xs"><span className="text-muted-foreground">Category</span><select className="w-full rounded-md border px-2 py-1.5 text-sm" value={cur.category_id} onChange={(e) => edit(it.id, { category_id: e.target.value })}>{cats.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
                       <input className="rounded-md border px-2 py-1.5 text-sm" maxLength={12} placeholder="Icon, e.g. 🍔" value={cur.icon_text ?? ""} onChange={(e) => edit(it.id, { icon_text: e.target.value || null })} />
                       <textarea className="min-h-20 rounded-md border px-2 py-1.5 text-sm sm:col-span-2" placeholder="Menu description" value={cur.description ?? ""} onChange={(e) => edit(it.id, { description: e.target.value || null })} />
                       <label className="space-y-1 text-xs"><span className="text-muted-foreground">Regular price</span>
@@ -202,6 +205,10 @@ function MenuAdmin() {
                           onChange={(e) => edit(it.id, { is_available: e.target.checked })}
                         />
                         Available
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-xs sm:col-span-2">
+                        <input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(it.id, { comes_with_drink: e.target.checked })} />
+                        Comes with a drink — customer chooses at checkout
                       </label>
                       <span className="text-xs text-muted-foreground tabular-nums sm:col-span-2">Displayed: {formatZAR(cur.special_price_cents ?? cur.price_cents ?? 0)}</span>
                       </div>
@@ -242,6 +249,7 @@ function MenuAdmin() {
                     value={ni.price}
                     onChange={(e) => setNewItem({ ...newItem, [c.id]: { ...ni, price: e.target.value } })}
                   />
+                  <label className="inline-flex items-center gap-2 text-xs sm:col-span-3"><input type="checkbox" checked={ni.comes_with_drink} onChange={(e) => setNewItem({ ...newItem, [c.id]: { ...ni, comes_with_drink: e.target.checked } })} /> Comes with a drink</label>
                   <button onClick={() => addItem(c.id)} className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">
                     <Plus className="h-3 w-3" /> Add
                   </button>

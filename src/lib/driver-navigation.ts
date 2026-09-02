@@ -18,3 +18,15 @@ export function googleNavigationUrl(destination: NavigationPoint | null, address
   const originQuery = origin ? `&origin=${origin.lat},${origin.lng}` : "";
   return `https://www.google.com/maps/dir/?api=1&destination=${destination.lat},${destination.lng}${originQuery}&travelmode=driving`;
 }
+
+export function fullNavigationUrl(destination: NavigationPoint | null, address: string | null, origin?: NavigationPoint | null) {
+  if (!destination && !address) return null;
+  const appleDevice = typeof navigator !== "undefined" && (
+    /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+  if (!appleDevice) return googleNavigationUrl(destination, address, origin);
+  const target = destination ? `${destination.lat},${destination.lng}` : address!;
+  const start = origin ? `&saddr=${origin.lat},${origin.lng}` : "";
+  return `https://maps.apple.com/?daddr=${encodeURIComponent(target)}${start}&dirflg=d`;
+}

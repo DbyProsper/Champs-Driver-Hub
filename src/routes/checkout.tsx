@@ -30,6 +30,8 @@ import { ChatDialog } from "@/components/ChatDialog";
 import { ImagePreview } from "@/components/ImagePreview";
 import { sendOrderEventEmail } from "@/lib/order-email";
 import { LocationPickerDialog } from "@/components/LocationPickerDialog";
+import { useQuery } from "@tanstack/react-query";
+import { menuQuery } from "@/lib/menu-queries";
 
 type CheckoutDriver = { driver_id: string; user_id: string; name: string; profile_image_url: string | null; phone: string; rating: number; distance_km: number | null; status: "online" | "offline" };
 type DriverReview = { rating: number; comment: string | null; created_at: string };
@@ -65,6 +67,7 @@ const schema = z.object({
 function Checkout() {
   const nav = useNavigate();
   const { items, subtotalCents, clear } = useCart();
+  const { data: menuData } = useQuery(menuQuery);
   const { active: branch } = useBranch();
   const [userId, setUserId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +88,7 @@ function Checkout() {
   const [closedMessage, setClosedMessage] = useState("Online ordering is closed right now. Please check back when Champs reopens.");
   const [savedHome, setSavedHome] = useState<{ address: string; lat: number; lng: number } | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [drinkChoices, setDrinkChoices] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -92,6 +96,18 @@ function Checkout() {
     delivery_notes: "",
     delivery_address: "",
   });
+  const drinkOptions = useMemo(() => {
+    if (!menuData) return [];
+    const drinkCategoryIds = new Set(menuData.categories.filter((category) => category.slug === "drinks").map((category) => category.id));
+    return menuData.items
+      .filter((item) => item.is_available && drinkCategoryIds.has(item.category_id))
+      .map((item) => item.variant_label ? `${item.name} — ${item.variant_label}` : item.name)
+      .filter((label, index, all) => all.indexOf(label) === index);
+  }, [menuData]);
+  const drinkRequiredItemIds = useMemo(() => new Set(items.filter((item) => {
+    const authoritative = menuData?.items.find((menuItem) => menuItem.id === (item.menu_item_id ?? item.id));
+    return item.comes_with_drink ?? authoritative?.comes_with_drink ?? false;
+  }).map((item) => item.id)), [items, menuData]);
 
   useEffect(() => {
     fetchDeliverySettings().then(setSettings).catch(() => {});
@@ -278,6 +294,8 @@ function Checkout() {
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
     if (!userId) return toast.error("Please sign in before placing an order so only you can track it");
     if (parsed.data.fulfillment === "pickup" && !settings.pickup_enabled) return toast.error("Pickup is currently disabled");
+    const missingDrink = items.find((item) => drinkRequiredItemIds.has(item.id) && !drinkChoices[item.id]);
+    if (missingDrink) return toast.error(`Choose the included drink for ${missingDrink.name}`);
 
     if (parsed.data.fulfillment === "delivery") {
       if (!userId) return toast.error("Please sign in before choosing and messaging a driver");
@@ -334,7 +352,7 @@ function Checkout() {
         items.map((i) => ({
           order_id: orderRow.id,
           menu_item_id: i.menu_item_id ?? i.id,
-          item_name: i.variant ? `${i.name} — ${i.variant}` : i.name,
+          item_name: `${i.variant ? `${i.name} — ${i.variant}` : i.name}${drinkRequiredItemIds.has(i.id) ? ` · Drink: ${drinkChoices[i.id]}` : ""}`,
           unit_price_cents: i.unit_price_cents,
           quantity: i.quantity,
         })),
@@ -569,12 +587,15 @@ function Checkout() {
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="text-sm space-y-1.5">
             {items.map((i) => (
-              <div key={i.id} className="flex justify-between gap-3">
-                <span className="flex items-center gap-2 truncate">
-                  <img src={i.image_url ? i.image_url : getMenuImageForItem(i.name, i.variant).src} alt={i.name} className="h-8 w-8 rounded-md object-cover" />
-                  <span className="truncate"><span className="font-bold text-brand">{i.quantity}×</span> {i.name}{i.variant ? ` — ${i.variant}` : ""}</span>
-                </span>
-                <span className="shrink-0 tabular-nums">{formatZAR(i.unit_price_cents * i.quantity)}</span>
+              <div key={i.id} className="space-y-2">
+                <div className="flex justify-between gap-3">
+                  <span className="flex items-center gap-2 truncate">
+                    <img src={i.image_url ? i.image_url : getMenuImageForItem(i.name, i.variant).src} alt={i.name} className="h-8 w-8 rounded-md object-cover" />
+                    <span className="truncate"><span className="font-bold text-brand">{i.quantity}×</span> {i.name}{i.variant ? ` — ${i.variant}` : ""}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums">{formatZAR(i.unit_price_cents * i.quantity)}</span>
+                </div>
+                {drinkRequiredItemIds.has(i.id) && <label className="block rounded-xl border border-brand/25 bg-brand/5 p-3"><span className="mb-1 block text-xs font-bold text-brand">Included drink{i.quantity > 1 ? ` for all ${i.quantity}` : ""}</span><select required aria-label={`Choose the included drink for ${i.name}`} value={drinkChoices[i.id] ?? ""} onChange={(event) => setDrinkChoices((current) => ({ ...current, [i.id]: event.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"><option value="">Choose your drink</option>{drinkOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>{drinkOptions.length === 0 && <span className="mt-1 block text-xs text-destructive">No drinks are available. Please contact Champs before ordering this special.</span>}</label>}
               </div>
             ))}
             <div className="mt-2 flex justify-between text-xs">
@@ -597,7 +618,7 @@ function Checkout() {
 
         <button
           type="submit"
-          disabled={submitting || !branch || storeOpen !== true || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
+          disabled={submitting || !branch || storeOpen !== true || items.some((item) => drinkRequiredItemIds.has(item.id) && !drinkChoices[item.id]) || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
           className="w-full rounded-full bg-brand py-4 text-sm font-bold text-brand-foreground hover:bg-brand-dark disabled:opacity-60"
         >
           {submitting ? "Sending order…" : form.fulfillment === "delivery" ? `Send Order to Driver · ${formatZAR(totalCents)}` : `Place order · ${formatZAR(subtotalCents)}`}

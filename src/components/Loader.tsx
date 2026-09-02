@@ -15,7 +15,7 @@ export function Loader({ visible = true }: { visible?: boolean }) {
   if (!visible && isLeaving) return null;
 
   return (
-    <div className={cn("fixed inset-0 z-[999] flex items-center justify-center bg-white backdrop-blur-sm transition-opacity duration-300", visible ? "opacity-100" : "opacity-0") }>
+    <div className={cn("fixed inset-0 z-[999] flex items-center justify-center bg-background text-foreground backdrop-blur-sm transition-opacity duration-300", visible ? "opacity-100" : "opacity-0") }>
       <div className="flex flex-col items-center text-center">
         <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-14 w-14 animate-float sm:h-16 sm:w-16" />
         <div className="mt-3 text-xs font-semibold uppercase tracking-[0.3em] text-brand">Loading…</div>

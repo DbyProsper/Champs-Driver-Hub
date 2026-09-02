@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { ComplaintThread } from "@/components/ComplaintThread";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { LocationPickerDialog } from "@/components/LocationPickerDialog";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -229,6 +230,10 @@ function ProfileSettings() {
               </label>
             ))}
           </div>
+        </section>
+        <section className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4">
+          <div><h2 className="font-display text-2xl">Appearance</h2><p className="text-xs text-muted-foreground">Switch between light and dark mode.</p></div>
+          <ThemeToggle />
         </section>
         <section id="complaints" className="rounded-2xl border bg-card p-4">
           <div className="flex items-center gap-2">

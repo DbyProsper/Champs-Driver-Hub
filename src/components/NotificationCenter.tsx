@@ -59,6 +59,17 @@ export function NotificationCenter() {
       setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, read_status: true } : entry));
     }
     setOpen(false);
+    if (item.type === "complaint_update") {
+      navigate({ to: "/profile", hash: "complaints" });
+      return;
+    }
+    if (item.order_id) {
+      const { data: order } = await supabase.from("orders").select("order_number,user_id").eq("id", item.order_id).maybeSingle();
+      if (order?.user_id === userId && order.order_number) {
+        navigate({ to: "/order/$number", params: { number: order.order_number } });
+        return;
+      }
+    }
     if (role === "driver") {
       if (item.conversation_id) {
         sessionStorage.setItem("champs-open-conversation", item.conversation_id);
@@ -74,10 +85,6 @@ export function NotificationCenter() {
     }
     if ((role === "admin" || role === "staff") && (item.type === "driver_report" || item.type === "complaint_update")) {
       navigate({ to: "/admin/complaints" });
-      return;
-    }
-    if (item.type === "complaint_update") {
-      navigate({ to: "/profile", hash: "complaints" });
       return;
     }
     if (!item.order_id) return;

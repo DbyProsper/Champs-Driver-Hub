@@ -28,6 +28,7 @@ type Promo = {
   day_of_week: number | null;
   is_active: boolean;
   sort_order: number;
+  comes_with_drink: boolean;
 };
 type Branch = { id: string; name: string; city: string };
 
@@ -38,7 +39,7 @@ function PromoAdmin() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [dirty, setDirty] = useState<Record<string, Partial<Promo>>>({});
-  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "" });
+  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false });
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [pickerFor, setPickerFor] = useState<"new" | string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -68,7 +69,11 @@ function PromoAdmin() {
         if (catErr) throw catErr;
         categoryId = insertedCat.id;
       }
-      const { data: existing } = await supabase.from("menu_items").select("id").eq("name", promo.title).maybeSingle();
+      let { data: existing } = await supabase.from("menu_items").select("id").eq("promotion_id", promo.id).maybeSingle();
+      if (!existing) {
+        const legacy = await supabase.from("menu_items").select("id").eq("name", promo.title).is("promotion_id", null).maybeSingle();
+        existing = legacy.data;
+      }
       const payload = {
         category_id: categoryId,
         name: promo.title,
@@ -78,6 +83,8 @@ function PromoAdmin() {
         is_available: true,
         sort_order: 0,
         image_url: promo.image_url ?? null,
+        promotion_id: promo.id,
+        comes_with_drink: promo.comes_with_drink,
       } as never;
       if (existing?.id) {
         const { error } = await supabase.from("menu_items").update(payload).eq("id", existing.id);
@@ -120,6 +127,7 @@ function PromoAdmin() {
       active_until: newP.active_until ? new Date(newP.active_until).toISOString() : null,
       branch_id: newP.branch_id || null,
       day_of_week: newP.day_of_week === "" ? null : Number(newP.day_of_week),
+      comes_with_drink: newP.comes_with_drink,
     };
     setBusyAction("create");
     const { data, error } = await supabase.from("promotions").insert(payload).select("*").single();
@@ -128,7 +136,7 @@ function PromoAdmin() {
     await syncPromoMenuItem(data as Promo);
     toast.success("Promo created");
     void logAdminAction({ action_type: "promotion_created", action_description: `Created promotion ${newP.title.trim()}`, target_type: "promotion", target_id: data.id, metadata: payload });
-    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "" });
+    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false });
     load();
   }
 
@@ -211,6 +219,7 @@ function PromoAdmin() {
               <option value="">Every day</option>
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
+            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.comes_with_drink} onChange={(e) => setNewP({ ...newP, comes_with_drink: e.target.checked })} /> Comes with a drink — customer chooses at checkout</label>
           </div>
           <button onClick={create} disabled={busyAction === "create"} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{busyAction === "create" && <Loader2 className="h-4 w-4 animate-spin" />}Create promo</button>
         </section>
@@ -246,9 +255,9 @@ function PromoAdmin() {
                     <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_until ? cur.active_until.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_until: e.target.value ? new Date(e.target.value).toISOString() : null })} />
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs">
-                    <label className="inline-flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-4"><label className="inline-flex items-center gap-2">
                       <input type="checkbox" checked={cur.is_active} onChange={(e) => edit(p.id, { is_active: e.target.checked })} /> Active
-                    </label>
+                    </label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(p.id, { comes_with_drink: e.target.checked })} /> Comes with a drink</label></div>
                     {cur.price_cents != null && <span className="tabular-nums text-muted-foreground">{formatZAR(cur.price_cents)}</span>}
                     <button onClick={() => remove(p.id)} className="inline-flex items-center gap-1 text-brand hover:underline"><Trash2 className="h-3 w-3" /> Delete</button>
                   </div>

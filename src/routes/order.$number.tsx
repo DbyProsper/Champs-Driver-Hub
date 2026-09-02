@@ -37,13 +37,13 @@ const orderQuery = (number: string) =>
               .maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
-      let driver: { name: string; phone: string; profile_image_url: string | null; rating: number; rating_count: number; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null } | null = null;
+      let driver: { name: string; username: string; phone: string; profile_image_url: string | null; rating: number; rating_count: number; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null } | null = null;
       let aheadCount = 0;
       const d: any = delivery;
       const driverId = d?.driver_id ?? order?.driver_id ?? null;
       if (driverId) {
         const { data: dr } = await (supabase.from("drivers") as any)
-          .select("name, phone, profile_image_url, rating, rating_count, bank_name, bank_account_number, bank_account_holder")
+          .select("name, username, phone, profile_image_url, rating, rating_count, bank_name, bank_account_number, bank_account_holder")
           .eq("id", driverId)
           .maybeSingle();
         driver = dr;
@@ -366,10 +366,10 @@ function OrderPage() {
           <div className="mt-4 rounded-2xl border-2 border-brand/30 bg-card p-5 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                {driver?.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.name} profile picture`} className="h-12 w-12 rounded-full object-cover" /> : null}
+                {driver?.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.username} profile picture`} className="h-12 w-12 rounded-full object-cover" /> : null}
                 <div>
                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Your driver</div>
-                <div className="font-display text-lg text-brand">{driver?.name ?? "Driver assigned"}</div>
+                <div className="font-display text-lg text-brand">{driver?.username ?? "Driver assigned"}</div>
                 {driver && <div className="text-[11px] text-muted-foreground">★ {Number(driver.rating ?? 0).toFixed(1)} · {driver.rating_count ?? 0} reviews</div>}
                 {driver?.phone ? (
                   <a href={`tel:${driver.phone}`} className="text-xs text-muted-foreground underline">{driver.phone}</a>

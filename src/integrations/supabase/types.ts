@@ -394,6 +394,7 @@ export type Database = {
           student_number: string | null
           updated_at: string
           user_id: string
+          username: string
         }
         Insert: {
           admin_notes?: string | null
@@ -414,6 +415,7 @@ export type Database = {
           student_number?: string | null
           updated_at?: string
           user_id: string
+          username: string
         }
         Update: {
           admin_notes?: string | null
@@ -434,6 +436,7 @@ export type Database = {
           student_number?: string | null
           updated_at?: string
           user_id?: string
+          username?: string
         }
         Relationships: [
           {
@@ -605,6 +608,7 @@ export type Database = {
           suspension_reason: string | null
           updated_at: string
           user_id: string | null
+          username: string
         }
         Insert: {
           active_order_count?: number
@@ -631,6 +635,7 @@ export type Database = {
           suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
+          username: string
         }
         Update: {
           active_order_count?: number
@@ -657,6 +662,7 @@ export type Database = {
           suspension_reason?: string | null
           updated_at?: string
           user_id?: string | null
+          username?: string
         }
         Relationships: [
           {
@@ -710,6 +716,7 @@ export type Database = {
       menu_items: {
         Row: {
           category_id: string
+          comes_with_drink: boolean
           created_at: string
           description: string | null
           id: string
@@ -718,6 +725,7 @@ export type Database = {
           is_available: boolean
           name: string
           price_cents: number
+          promotion_id: string | null
           special_price_cents: number | null
           burger_only_price_cents: number | null
           sort_order: number
@@ -726,6 +734,7 @@ export type Database = {
         }
         Insert: {
           category_id: string
+          comes_with_drink?: boolean
           created_at?: string
           description?: string | null
           id?: string
@@ -734,6 +743,7 @@ export type Database = {
           is_available?: boolean
           name: string
           price_cents: number
+          promotion_id?: string | null
           special_price_cents?: number | null
           burger_only_price_cents?: number | null
           sort_order?: number
@@ -742,6 +752,7 @@ export type Database = {
         }
         Update: {
           category_id?: string
+          comes_with_drink?: boolean
           created_at?: string
           description?: string | null
           id?: string
@@ -750,6 +761,7 @@ export type Database = {
           is_available?: boolean
           name?: string
           price_cents?: number
+          promotion_id?: string | null
           special_price_cents?: number | null
           burger_only_price_cents?: number | null
           sort_order?: number
@@ -762,6 +774,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_items_promotion_id_fkey"
+            columns: ["promotion_id"]
+            isOneToOne: true
+            referencedRelation: "promotions"
             referencedColumns: ["id"]
           },
         ]
@@ -1036,6 +1055,7 @@ export type Database = {
           active_until: string | null
           badge: string | null
           branch_id: string | null
+          comes_with_drink: boolean
           created_at: string
           day_of_week: number | null
           description: string | null
@@ -1052,6 +1072,7 @@ export type Database = {
           active_until?: string | null
           badge?: string | null
           branch_id?: string | null
+          comes_with_drink?: boolean
           created_at?: string
           day_of_week?: number | null
           description?: string | null
@@ -1068,6 +1089,7 @@ export type Database = {
           active_until?: string | null
           badge?: string | null
           branch_id?: string | null
+          comes_with_drink?: boolean
           created_at?: string
           day_of_week?: number | null
           description?: string | null
@@ -1327,6 +1349,25 @@ export type Database = {
               _branch_id?: string
               _name: string
               _phone: string
+            }
+            Returns: {
+              out_application_id: string
+              out_status: string
+            }[]
+          }
+        | {
+            Args: {
+              _bank_account_holder?: string
+              _bank_account_number?: string
+              _bank_name?: string
+              _branch_id?: string
+              _id_number?: string
+              _name: string
+              _phone: string
+              _profile_photo_url?: string
+              _selfie_url?: string
+              _student_number?: string
+              _username: string
             }
             Returns: {
               out_application_id: string

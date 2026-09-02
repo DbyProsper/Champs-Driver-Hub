@@ -39,10 +39,11 @@ function MenuPage() {
   const queryClient = useQueryClient();
   const { categories, items } = data;
   const activePromoTitles = useMemo(() => new Set(activePromos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id).map((promo) => promo.title.trim().toLowerCase())), [activePromos, activeBranch?.id]);
+  const activePromoIds = useMemo(() => new Set(activePromos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id).map((promo) => promo.id)), [activePromos, activeBranch?.id]);
   const visibleItems = useMemo(() => items.filter((item) => {
     const category = categories.find((entry) => entry.id === item.category_id);
-    return category?.slug !== "promos" || activePromoTitles.has(item.name.trim().toLowerCase());
-  }), [items, categories, activePromoTitles]);
+    return category?.slug !== "promos" || (item.promotion_id ? activePromoIds.has(item.promotion_id) : activePromoTitles.has(item.name.trim().toLowerCase()));
+  }), [items, categories, activePromoIds, activePromoTitles]);
   const hasVisiblePromos = visibleItems.some((item) => categories.find((category) => category.id === item.category_id)?.slug === "promos");
   const displayCategories = useMemo(() => {
     const hasSalads = categories.some((c) => c.slug === "salads" || c.name.toLowerCase().includes("salad"));
@@ -292,13 +293,13 @@ function Row({ item }: { item: MenuItem }) {
       </div>
       {!available ? null : hasBurgerOnly ? (
         <div className="flex shrink-0 flex-col gap-1.5">
-          <button onClick={() => { add({ id: mealLineId, menu_item_id: item.id, name: item.name, variant: item.variant_label || "Meal", unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url }); toast.success(`Added ${label} meal`); }} className="rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground">Meal · {formatZAR(item.special_price_cents ?? item.price_cents)}</button>
-          <button onClick={() => { add({ id: burgerLineId, menu_item_id: item.id, name: item.name, variant: "Burger only", unit_price_cents: item.burger_only_price_cents!, image_url: item.image_url }); toast.success(`Added ${item.name} burger only`); }} className="rounded-full border px-3 py-1.5 text-[11px] font-bold">Burger only · {formatZAR(item.burger_only_price_cents!)}</button>
+          <button onClick={() => { add({ id: mealLineId, menu_item_id: item.id, name: item.name, variant: item.variant_label || "Meal", unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url, comes_with_drink: item.comes_with_drink }); toast.success(`Added ${label} meal`); }} className="rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground">Meal · {formatZAR(item.special_price_cents ?? item.price_cents)}</button>
+          <button onClick={() => { add({ id: burgerLineId, menu_item_id: item.id, name: item.name, variant: "Burger only", unit_price_cents: item.burger_only_price_cents!, image_url: item.image_url, comes_with_drink: false }); toast.success(`Added ${item.name} burger only`); }} className="rounded-full border px-3 py-1.5 text-[11px] font-bold">Burger only · {formatZAR(item.burger_only_price_cents!)}</button>
         </div>
       ) : qty === 0 ? (
         <button
           onClick={() => {
-            add({ id: item.id, menu_item_id: item.id, name: item.name, variant: item.variant_label, unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url });
+            add({ id: item.id, menu_item_id: item.id, name: item.name, variant: item.variant_label, unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url, comes_with_drink: item.comes_with_drink });
             toast.success(`Added ${label}`);
           }}
           className="shrink-0 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground hover:bg-brand-dark"

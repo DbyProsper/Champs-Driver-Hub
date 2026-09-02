@@ -3,7 +3,7 @@ import { Loader2, MapPin, Navigation, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { loadGoogleMaps } from "@/components/AddressAutocomplete";
 import { supabase } from "@/integrations/supabase/client";
-import { googleNavigationUrl, straightLineDistanceMeters, type NavigationPoint } from "@/lib/driver-navigation";
+import { fullNavigationUrl, straightLineDistanceMeters, type NavigationPoint } from "@/lib/driver-navigation";
 
 type DriverDeliveryMapProps = {
   driverId: string;
@@ -249,7 +249,7 @@ export function DriverDeliveryMap({
   }, []);
 
   const navigationHref = useMemo(
-    () => googleNavigationUrl(destination, destinationAddress, driverLocation),
+    () => fullNavigationUrl(destination, destinationAddress, driverLocation),
     [destination, destinationAddress, driverLocation],
   );
 

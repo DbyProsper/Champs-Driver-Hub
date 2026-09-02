@@ -8,6 +8,7 @@ export type CartItem = {
   unit_price_cents: number;
   quantity: number;
   image_url?: string | null;
+  comes_with_drink?: boolean;
 };
 
 type CartCtx = {

@@ -19,6 +19,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader } from "@/components/Loader";
 import { BrowserNotificationBridge } from "@/components/BrowserNotificationBridge";
 
+const THEME_INIT_SCRIPT = `(function(){try{var k='champs-color-theme';var s=localStorage.getItem(k);var d=s?s==='dark':matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',d);document.documentElement.style.colorScheme=d?'dark':'light'}catch(e){}})();`;
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -86,8 +88,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <head><HeadContent /></head>
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /><HeadContent /></head>
       <body>{children}<Scripts /></body>
     </html>
   );

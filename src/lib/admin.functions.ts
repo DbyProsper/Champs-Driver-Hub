@@ -61,16 +61,16 @@ async function logServerAdminAction(context: { userId?: string | null }, action:
 }
 
 async function getVisibleDriversForAdmin() {
-  let driverRows: Array<{ id: string; user_id: string | null; email: string | null; name: string; phone: string; status: string; profile_image_url: string | null; rating: number; rating_count: number; approval_status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; suspended_until: string | null; suspension_reason: string | null; created_at: string; updated_at: string }> = [];
-  let applicationRows: Array<{ id: string; user_id: string; email: string | null; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
+  let driverRows: Array<{ id: string; user_id: string | null; email: string | null; name: string; username: string; phone: string; status: string; profile_image_url: string | null; rating: number; rating_count: number; approval_status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; suspended_until: string | null; suspension_reason: string | null; created_at: string; updated_at: string }> = [];
+  let applicationRows: Array<{ id: string; user_id: string; email: string | null; name: string; username: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
 
   const [{ data: drivers, error: driversError }, { data: applications, error: applicationsError }, { data: authDirectory, error: authDirectoryError }] = await Promise.all([
     // include banking fields so admin UI can show full driver info
     supabaseAdmin
       .from("drivers")
-      .select("id,user_id,name,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,approval_status,suspended_until,suspension_reason,created_at,updated_at")
+      .select("id,user_id,name,username,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,approval_status,suspended_until,suspension_reason,created_at,updated_at")
       .order("created_at", { ascending: false }),
-    supabaseAdmin.from("driver_applications").select("id,user_id,name,phone,branch_id,id_number,student_number,profile_photo_url,selfie_url,bank_name,bank_account_number,bank_account_holder,status,created_at,admin_notes").order("created_at", { ascending: false }),
+    supabaseAdmin.from("driver_applications").select("id,user_id,name,username,phone,branch_id,id_number,student_number,profile_photo_url,selfie_url,bank_name,bank_account_number,bank_account_holder,status,created_at,admin_notes").order("created_at", { ascending: false }),
     supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
   ]);
 
@@ -148,7 +148,7 @@ export const getDriverProfileForCurrentUser = createServerFn({ method: "POST" })
     const [{ data: driver }, { data: roleData }] = await Promise.all([
       supabaseAdmin
         .from("drivers")
-        .select("id,name,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,user_id,approval_status,suspended_until,suspension_reason")
+        .select("id,name,username,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,user_id,approval_status,suspended_until,suspension_reason")
         .eq("user_id", uid)
         .maybeSingle(),
       supabaseAdmin.from("user_roles").select("role").eq("user_id", uid),
@@ -254,6 +254,7 @@ export const requestDriverApplication = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: unknown) => z.object({
     name: z.string().trim().min(1),
+    username: z.string().trim().min(2).max(40),
     phone: z.string().trim().min(1),
     idNumber: z.string().trim().min(1).nullable().optional(),
     studentNumber: z.string().trim().nullable().optional(),
@@ -267,6 +268,7 @@ export const requestDriverApplication = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: appData, error } = await context.supabase.rpc("request_driver_application", {
       _name: data.name,
+      _username: data.username,
       _phone: data.phone,
       _id_number: data.idNumber || undefined,
       _student_number: data.studentNumber || undefined,

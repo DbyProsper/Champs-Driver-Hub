@@ -15,6 +15,7 @@ import { SA_BANKS } from "@/lib/sa-banks";
 import { PasswordChangeForm } from "@/components/PasswordChangeForm";
 import { ImagePreview } from "@/components/ImagePreview";
 import { DriverDeliveryMap } from "@/components/DriverDeliveryMap";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const Route = createFileRoute("/_authenticated/driver")({
   head: () => ({ meta: [{ title: "Driver — Champs Chicken" }, { name: "robots", content: "noindex" }] }),
@@ -62,16 +63,16 @@ type ItemRow = { order_id: string; item_name: string; quantity: number };
 
 function DriverPage() {
   const [loading, setLoading] = useState(true);
-  const [driver, setDriver] = useState<{ id: string; name: string; phone?: string; status: string; profile_image_url?: string | null; approval_status?: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null } | null>(null);
+  const [driver, setDriver] = useState<{ id: string; name: string; username: string; phone?: string; status: string; profile_image_url?: string | null; approval_status?: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null } | null>(null);
   const [notDriver, setNotDriver] = useState(false);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [orders, setOrders] = useState<Record<string, Order>>({});
   const [items, setItems] = useState<Record<string, ItemRow[]>>({});
   const [branches, setBranches] = useState<Record<string, Branch>>({});
   const [tab, setTab] = useState<"available" | "active" | "history" | "settings">("available");
-  const [settings, setSettings] = useState({ bankName: "", bankAccountNumber: "", bankAccountHolder: "", bankNote: "", phone: "" });
+  const [settings, setSettings] = useState({ username: "", bankName: "", bankAccountNumber: "", bankAccountHolder: "", bankNote: "", phone: "" });
   const [approvalBlocked, setApprovalBlocked] = useState(false);
-  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState<"profile" | "bank" | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<"today" | "week" | "month" | "6months" | "year" | "custom">("week");
   const [customRange, setCustomRange] = useState<{ from?: string; to?: string }>({});
@@ -109,7 +110,7 @@ function DriverPage() {
     }
 
     const profileData = await getDriverProfileForCurrentUser({ data: {} });
-    const driverRecord = profileData?.driver as { id: string; name: string; phone?: string; status: string; profile_image_url?: string | null; branch_id?: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null; approval_status?: string | null; roles?: string[] } | null;
+    const driverRecord = profileData?.driver as { id: string; name: string; username: string; phone?: string; status: string; profile_image_url?: string | null; branch_id?: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null; approval_status?: string | null; roles?: string[] } | null;
 
     if (!driverRecord) {
       setNotDriver(true);
@@ -121,6 +122,7 @@ function DriverPage() {
     const approvalStatus = driverRecord?.approval_status ?? (driverRecord?.status === "pending" ? "pending" : "approved");
     setApprovalBlocked(["pending", "rejected", "suspended"].includes(approvalStatus));
     setSettings({
+      username: driverRecord?.username ?? driverRecord?.name ?? "",
       bankName: driverRecord?.bank_name ?? "",
       bankAccountNumber: driverRecord?.bank_account_number ?? "",
       bankAccountHolder: driverRecord?.bank_account_holder ?? "",
@@ -236,26 +238,45 @@ function DriverPage() {
   const active = useMemo(() => (driver ? deliveries.filter((d) => d.driver_id === driver.id && d.status !== "pending_driver_acceptance" && d.status !== "delivered" && d.status !== "cancelled") : []), [deliveries, driver]);
   const history = useMemo(() => (driver ? deliveries.filter((d) => d.driver_id === driver.id) : []), [deliveries, driver]);
 
-  async function saveSettings() {
+  async function saveProfileSettings() {
     if (!driver) return;
-    setSettingsBusy(true);
+    const username = settings.username.trim();
+    if (username.length < 2 || username.length > 40) return toast.error("Username must be between 2 and 40 characters");
+    setSettingsBusy("profile");
+    try {
+      const { error } = await supabase.from("drivers").update({
+        username,
+        phone: settings.phone.trim() || driver.phone || null,
+      } as never).eq("id", driver.id);
+      if (error) throw error;
+      setDriver((prev) => prev ? { ...prev, username, phone: settings.phone.trim() || prev.phone } : prev);
+      toast.success("Driver profile updated");
+    } catch (err: any) {
+      toast.error(err.message ?? "Could not save driver profile");
+    } finally {
+      setSettingsBusy(null);
+    }
+  }
+
+  async function saveBankSettings() {
+    if (!driver) return;
+    setSettingsBusy("bank");
     try {
       const noteText = settings.bankNote.trim();
       const accountHolder = [settings.bankAccountHolder.trim(), noteText].filter(Boolean).join(" • ");
       const { error } = await supabase.from("drivers").update({
-        phone: settings.phone.trim() || driver.phone || null,
         bank_name: settings.bankName.trim() || null,
         bank_account_number: settings.bankAccountNumber.trim() || null,
         bank_account_holder: accountHolder || null,
       } as never).eq("id", driver.id);
       if (error) throw error;
       localStorage.setItem(`champs-driver-note:${driver.id}`, noteText);
-      setDriver((prev) => prev ? { ...prev, phone: settings.phone.trim() || prev.phone, bank_name: settings.bankName.trim() || undefined, bank_account_number: settings.bankAccountNumber.trim() || undefined, bank_account_holder: accountHolder || undefined } : prev);
+      setDriver((prev) => prev ? { ...prev, bank_name: settings.bankName.trim() || undefined, bank_account_number: settings.bankAccountNumber.trim() || undefined, bank_account_holder: accountHolder || undefined } : prev);
       toast.success("Banking details updated");
     } catch (err: any) {
       toast.error(err.message ?? "Could not save driver settings");
     } finally {
-      setSettingsBusy(false);
+      setSettingsBusy(null);
     }
   }
 
@@ -454,11 +475,12 @@ function DriverPage() {
         <div className="mx-auto flex max-w-2xl flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <Link to="/" className="font-display text-xl text-brand inline-flex items-center gap-2">
             <img src="/images/champs/champs-logo.png" alt="Champs Chicken" className="h-8 w-auto" />
-            <span>Driver</span>
+            <span className="leading-none"><span className="block">Driver</span>{driver?.username && <span className="block max-w-28 truncate font-sans text-[10px] font-semibold normal-case text-muted-foreground">{driver.username}</span>}</span>
             <img src="/images/champs/driver-delivery-mark-clean.png" alt="Champs delivery driver" className="h-9 w-12 object-contain" />
           </Link>
           <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
             <NotificationCenter />
+            <ThemeToggle className="hidden sm:grid" />
             {driver && <ChatDialog driverId={driver.id} audience="champs" label="Champs chat" className="grid h-8 w-8 place-items-center rounded-full border text-[0px] [&_svg]:m-0" />}
             <button type="button" onClick={() => setShowHelp(true)} className="grid h-8 w-8 place-items-center rounded-full border" aria-label="How driver orders work"><CircleHelp className="h-4 w-4" /></button>
             <button disabled={!!actionBusy} onClick={() => void runAction("status", toggleStatus)} className={"inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold uppercase tracking-wider disabled:opacity-60 " + (driver?.status === "active" ? "bg-emerald-600 text-white" : "border bg-background text-muted-foreground")}>
@@ -515,13 +537,24 @@ function DriverPage() {
           </div>
         )}
         {tab === "settings" && (
-          <div className="rounded-2xl border bg-card p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-brand"><Settings2 className="h-4 w-4" /> Driver settings</div>
-            <div className="mt-3 grid gap-2">
+          <div className="space-y-4">
+            <section className="rounded-2xl border bg-card p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-brand"><Settings2 className="h-4 w-4" /> Driver profile</div>
+              <p className="mt-1 text-xs text-muted-foreground">Your username and photo are what customers see. Your legal name remains on your application record.</p>
+              <div className="mt-3 grid gap-2">
               <div className="flex items-center gap-3 rounded-xl border p-3">
-                {driver?.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.name} profile picture`} className="h-14 w-14 rounded-full object-cover" /> : <div className="grid h-14 w-14 place-items-center rounded-full bg-muted font-display text-xl text-brand">{driver?.name?.slice(0, 1)}</div>}
+                {driver?.profile_image_url ? <ImagePreview src={driver.profile_image_url} alt={`${driver.username} profile picture`} className="h-14 w-14 rounded-full object-cover" /> : <div className="grid h-14 w-14 place-items-center rounded-full bg-muted font-display text-xl text-brand">{driver?.username?.slice(0, 1)}</div>}
                 <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold"><Upload className="h-3.5 w-3.5" /> {photoBusy ? "Uploading…" : "Change profile photo"}<input type="file" accept="image/*" disabled={photoBusy} className="hidden" onChange={(event) => event.target.files?.[0] && void uploadProfilePhoto(event.target.files[0])} /></label>
               </div>
+              <label className="grid gap-1 text-xs font-semibold">Username shown to customers<input required minLength={2} maxLength={40} className="rounded-lg border bg-background px-3 py-2 text-sm font-normal" placeholder="Public username" value={settings.username} onChange={(e) => setSettings({ ...settings, username: e.target.value })} /></label>
+              <label className="grid gap-1 text-xs font-semibold">Phone number<input className="rounded-lg border bg-background px-3 py-2 text-sm font-normal" placeholder="Phone" inputMode="tel" value={settings.phone} onChange={(e) => setSettings({ ...settings, phone: e.target.value })} /></label>
+              <button onClick={() => void saveProfileSettings()} disabled={settingsBusy !== null} className="rounded-lg bg-brand px-3 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{settingsBusy === "profile" ? "Saving…" : "Save profile details"}</button>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border bg-card p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-brand"><CreditCard className="h-4 w-4" /> Bank account details</div>
+              <div className="mt-3 grid gap-2">
               <select className="rounded-lg border bg-background px-3 py-2 text-sm" value={settings.bankName} onChange={(e) => setSettings({ ...settings, bankName: e.target.value })}>
                 <option value="">Select SA bank</option>
                 {SA_BANKS.map((bank) => <option key={bank} value={bank}>{bank}</option>)}
@@ -529,11 +562,13 @@ function DriverPage() {
               <input className="rounded-lg border bg-background px-3 py-2 text-sm" placeholder="Account number" value={settings.bankAccountNumber} onChange={(e) => setSettings({ ...settings, bankAccountNumber: e.target.value })} />
               <input className="rounded-lg border bg-background px-3 py-2 text-sm" placeholder="Account holder" value={settings.bankAccountHolder} onChange={(e) => setSettings({ ...settings, bankAccountHolder: e.target.value })} />
               <textarea className="rounded-lg border bg-background px-3 py-2 text-sm" placeholder="Customer note (e.g. Capitec transfer to 0123456789 or Instant EFT only)" rows={2} value={settings.bankNote} onChange={(e) => setSettings({ ...settings, bankNote: e.target.value })} />
-              <input className="rounded-lg border bg-background px-3 py-2 text-sm" placeholder="Phone" value={settings.phone} onChange={(e) => setSettings({ ...settings, phone: e.target.value })} />
-              <button onClick={saveSettings} disabled={settingsBusy} className="rounded-lg bg-brand px-3 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{settingsBusy ? "Saving…" : "Save settings"}</button>
+              <button onClick={() => void saveBankSettings()} disabled={settingsBusy !== null} className="rounded-lg bg-brand px-3 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{settingsBusy === "bank" ? "Saving…" : "Save bank account details"}</button>
+              </div>
+            </section>
+
+            <section className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4"><div><div className="text-sm font-semibold text-brand">Appearance</div><div className="text-xs text-muted-foreground">Switch between light and dark mode.</div></div><ThemeToggle /></section>
+            <div><PasswordChangeForm /></div>
             </div>
-            <div className="mt-4"><PasswordChangeForm /></div>
-          </div>
         )}
         {tab !== "settings" && list.length === 0 && (
           <div className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
