@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Bike, Plus, Loader2, Phone, Zap, X, ExternalLink } from "lucide-react";
+import { ArrowLeft, Bike, Plus, Loader2, Phone, Zap, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatZAR } from "@/lib/format";
 import { toast } from "sonner";
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/admin/deliveries")({
   component: DeliveriesPage,
 });
 
-type Driver = { id: string; user_id: string | null; name: string; phone: string; status: string; profile_image_url?: string | null; rating?: number; rating_count?: number; approval_status?: string | null; suspended_until?: string | null; suspension_reason?: string | null; branch_id: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null };
+type Driver = { id: string; user_id: string | null; email?: string | null; name: string; phone: string; status: string; profile_image_url?: string | null; rating?: number; rating_count?: number; approval_status?: string | null; suspended_until?: string | null; suspension_reason?: string | null; branch_id: string | null; bank_name?: string | null; bank_account_number?: string | null; bank_account_holder?: string | null };
 type Delivery = {
   id: string;
   order_id: string;
@@ -40,7 +40,7 @@ type Delivery = {
 };
 type Order = { id: string; order_number: string; customer_name: string; customer_phone: string; delivery_address: string | null; delivery_lat: number | null; delivery_lng: number | null; subtotal_cents: number; branch_id: string };
 type Branch = { id: string; name: string; city: string };
-type DriverApplication = { id: string; user_id: string; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null };
+type DriverApplication = { id: string; user_id: string; email?: string | null; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null };
 type DriverReview = { id: string; rating: number; comment: string | null; created_at: string; order_number: string };
 
 function DeliveriesPage() {
@@ -49,6 +49,8 @@ function DeliveriesPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [applications, setApplications] = useState<DriverApplication[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
+  const [selectedApplicationReview, setSelectedApplicationReview] = useState<DriverApplication | null>(null);
+  const [applicationActionId, setApplicationActionId] = useState<string | null>(null);
   const [selectedReviews, setSelectedReviews] = useState<DriverReview[]>([]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [orders, setOrders] = useState<Record<string, Order>>({});
@@ -179,25 +181,31 @@ function DeliveriesPage() {
   }
 
   async function approveApplication(app: DriverApplication) {
+    setApplicationActionId(app.id);
     try {
       await approveDriverApplication({ data: { applicationId: app.id } });
       toast.success(`${app.name} approved as driver`);
       void logAdminAction({ action_type: "driver_approved", action_description: `Approved driver ${app.name}`, target_type: "driver_application", target_id: app.id, metadata: { name: app.name } });
       load();
+      setSelectedApplicationReview(null);
     } catch (err: any) {
       toast.error(err.message ?? "Could not approve driver request");
-    }
+    } finally { setApplicationActionId(null); }
   }
 
   async function rejectApplication(app: DriverApplication) {
+    const notes = window.prompt(`Reason for rejecting ${app.name}'s application (optional):`, app.admin_notes ?? "");
+    if (notes === null) return;
+    setApplicationActionId(app.id);
     try {
-      await rejectDriverApplication({ data: { applicationId: app.id } });
+      await rejectDriverApplication({ data: { applicationId: app.id, notes: notes.trim() || undefined } });
       toast.success("Driver request rejected");
       void logAdminAction({ action_type: "driver_rejected", action_description: `Rejected driver ${app.name}`, target_type: "driver_application", target_id: app.id, metadata: { name: app.name } });
       load();
+      setSelectedApplicationReview(null);
     } catch (err: any) {
       toast.error(err.message ?? "Could not reject driver request");
-    }
+    } finally { setApplicationActionId(null); }
   }
 
   async function removeDriver(id: string) {
@@ -260,7 +268,7 @@ function DeliveriesPage() {
 
   const activeDeliveries = useMemo(() => deliveries.filter((d) => d.status !== "delivered" && d.status !== "cancelled"), [deliveries]);
   const completed = useMemo(() => deliveries.filter((d) => d.status === "delivered" || d.status === "cancelled"), [deliveries]);
-  const selectedApplication = selectedDriver?.user_id ? applications.find((application) => application.user_id === selectedDriver.user_id) : null;
+  const selectedDriverApplication = selectedDriver?.user_id ? applications.find((application) => application.user_id === selectedDriver.user_id) : null;
 
   if (loading) return <div className="grid min-h-screen place-items-center"><Loader2 className="h-6 w-6 animate-spin text-brand" /></div>;
 
@@ -305,12 +313,11 @@ function DeliveriesPage() {
               <div className="mt-2 divide-y">
                 {applications.filter((app) => app.status === "pending").map((app) => (
                   <div key={app.id} className="flex flex-wrap items-center gap-2 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">{app.name}</div>
-                      <div className="text-xs text-muted-foreground">{app.phone}{app.branch_id && branches[app.branch_id] ? ` · ${branches[app.branch_id].name}` : ""}</div>
-                    </div>
-                    <button onClick={() => approveApplication(app)} className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">Approve</button>
-                    <button onClick={() => rejectApplication(app)} className="rounded-full border px-3 py-1.5 text-xs font-semibold text-muted-foreground">Reject</button>
+                    <button type="button" onClick={() => setSelectedApplicationReview(app)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left hover:bg-muted/40">
+                      {app.profile_photo_url ? <img src={app.profile_photo_url} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" /> : <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted font-display text-brand">{app.name.slice(0, 1)}</span>}
+                      <span className="min-w-0"><span className="block truncate text-sm font-semibold">{app.name}</span><span className="block truncate text-xs text-muted-foreground">{app.phone}{app.branch_id && branches[app.branch_id] ? ` · ${branches[app.branch_id].name}` : ""}</span><span className="block truncate text-[11px] text-muted-foreground">{app.email ?? "No login email available"}</span></span>
+                    </button>
+                    <button type="button" onClick={() => setSelectedApplicationReview(app)} className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">Review</button>
                     <button onClick={() => deleteApplication(app)} className="rounded-full border border-destructive/50 px-3 py-1.5 text-xs font-semibold text-destructive">Delete</button>
                   </div>
                 ))}
@@ -421,11 +428,17 @@ function DeliveriesPage() {
       </div>
       {selectedDriver && <div className="fixed inset-0 z-[90] grid place-items-center overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label={`${selectedDriver.name} driver information`} onClick={() => setSelectedDriver(null)}><div className="my-6 w-full max-w-2xl rounded-3xl border bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3">{selectedDriver.profile_image_url ? <ImagePreview src={selectedDriver.profile_image_url} alt={`${selectedDriver.name} profile picture`} className="h-20 w-20 rounded-full object-cover" /> : <div className="grid h-20 w-20 place-items-center rounded-full bg-muted font-display text-2xl text-brand">{selectedDriver.name.slice(0,1)}</div>}<div><h2 className="font-display text-3xl text-brand">{selectedDriver.name}</h2><div className="text-sm text-muted-foreground">{selectedDriver.phone} · {selectedDriver.status}</div><div className="text-sm">★ {Number(selectedDriver.rating ?? 0).toFixed(1)} from {selectedDriver.rating_count ?? 0} reviews</div></div></div><button type="button" onClick={() => setSelectedDriver(null)} className="grid h-9 w-9 place-items-center rounded-full border" aria-label="Close driver information"><X className="h-4 w-4" /></button></div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2"><Info label="Branch" value={selectedDriver.branch_id ? branches[selectedDriver.branch_id]?.name : null} /><Info label="Approval" value={selectedDriver.approval_status} /><Info label="Bank" value={selectedDriver.bank_name} /><Info label="Account number" value={selectedDriver.bank_account_number} /><Info label="Account holder" value={selectedDriver.bank_account_holder} /><Info label="Applied" value={selectedApplication ? new Date(selectedApplication.created_at).toLocaleString() : null} /><Info label="Identity number" value={selectedApplication?.id_number} /><Info label="Licence number" value={selectedApplication?.student_number} /></div>
-        {selectedApplication && <section className="mt-5"><h3 className="font-display text-xl text-brand">Application documents</h3><div className="mt-2 flex flex-wrap gap-3">{selectedApplication.profile_photo_url && <a href={selectedApplication.profile_photo_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><ExternalLink className="h-3.5 w-3.5" /> Profile photo</a>}{selectedApplication.selfie_url && <a href={selectedApplication.selfie_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-semibold"><ExternalLink className="h-3.5 w-3.5" /> Selfie with ID/licence</a>}{!selectedApplication.profile_photo_url && !selectedApplication.selfie_url && <div className="text-sm text-muted-foreground">No submitted document images.</div>}</div></section>}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2"><Info label="Email" value={selectedDriver.email} /><Info label="Phone" value={selectedDriver.phone} /><Info label="Branch" value={selectedDriver.branch_id ? branches[selectedDriver.branch_id]?.name : null} /><Info label="Approval" value={selectedDriver.approval_status} /><Info label="Bank" value={selectedDriver.bank_name} /><Info label="Account number" value={selectedDriver.bank_account_number} /><Info label="Account holder" value={selectedDriver.bank_account_holder} /><Info label="Applied" value={selectedDriverApplication ? new Date(selectedDriverApplication.created_at).toLocaleString() : null} /><Info label="Identity number" value={selectedDriverApplication?.id_number} /><Info label="Licence number" value={selectedDriverApplication?.student_number} /><Info label="Application status" value={selectedDriverApplication?.status} /><Info label="Admin notes" value={selectedDriverApplication?.admin_notes} /></div>
+        {selectedDriverApplication && <ApplicationDocuments application={selectedDriverApplication} />}
         <section className="mt-5"><h3 className="font-display text-xl text-brand">Customer reviews and comments</h3><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{profileLoading && <div className="text-sm text-muted-foreground">Loading reviews…</div>}{!profileLoading && selectedReviews.length === 0 && <div className="text-sm text-muted-foreground">No customer reviews yet.</div>}{selectedReviews.map((review) => <div key={review.id} className="rounded-xl border p-3 text-sm"><div className="flex justify-between gap-2"><span className="font-semibold">{"★".repeat(review.rating)} · Order {review.order_number}</span><span className="text-[10px] text-muted-foreground">{new Date(review.created_at).toLocaleDateString()}</span></div><div className="mt-1 text-muted-foreground">{review.comment || "No written comment."}</div></div>)}</div></section>
         {selectedDriver.approval_status === "suspended" && selectedDriver.suspended_until && <div className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-xs text-amber-800">Suspended until {new Date(selectedDriver.suspended_until).toLocaleString()}{selectedDriver.suspension_reason ? ` · ${selectedDriver.suspension_reason}` : ""}</div>}
         <div className="mt-5 flex flex-wrap gap-2"><button onClick={() => suspendDriver(selectedDriver)} disabled={selectedDriver.approval_status === "suspended" && Boolean(selectedDriver.suspended_until) && new Date(selectedDriver.suspended_until!).getTime() > Date.now()} className="rounded-full bg-amber-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Suspend 24 hours</button><button onClick={() => { void removeDriver(selectedDriver.id); setSelectedDriver(null); }} className="rounded-full border border-destructive/50 px-3 py-2 text-xs font-semibold text-destructive">Delete driver</button></div>
+      </div></div>}
+      {selectedApplicationReview && <div className="fixed inset-0 z-[95] grid place-items-center overflow-y-auto bg-black/60 p-4" role="dialog" aria-modal="true" aria-label={`${selectedApplicationReview.name} driver application`} onClick={() => setSelectedApplicationReview(null)}><div className="my-6 w-full max-w-2xl rounded-3xl border bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3">{selectedApplicationReview.profile_photo_url ? <ImagePreview src={selectedApplicationReview.profile_photo_url} alt={`${selectedApplicationReview.name} profile photo`} className="h-20 w-20 shrink-0 rounded-full object-cover" /> : <div className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-muted font-display text-2xl text-brand">{selectedApplicationReview.name.slice(0, 1)}</div>}<div className="min-w-0"><h2 className="truncate font-display text-3xl text-brand">{selectedApplicationReview.name}</h2><div className="text-sm text-muted-foreground">Driver application · {selectedApplicationReview.status}</div></div></div><button type="button" onClick={() => setSelectedApplicationReview(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full border" aria-label="Close application"><X className="h-4 w-4" /></button></div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2"><Info label="Email" value={selectedApplicationReview.email} /><Info label="Phone" value={selectedApplicationReview.phone} /><Info label="Branch" value={selectedApplicationReview.branch_id ? branches[selectedApplicationReview.branch_id]?.name : null} /><Info label="Identity number" value={selectedApplicationReview.id_number} /><Info label="Licence number" value={selectedApplicationReview.student_number} /><Info label="Bank" value={selectedApplicationReview.bank_name} /><Info label="Account number" value={selectedApplicationReview.bank_account_number} /><Info label="Account holder" value={selectedApplicationReview.bank_account_holder} /><Info label="Submitted" value={new Date(selectedApplicationReview.created_at).toLocaleString()} /><Info label="Admin notes" value={selectedApplicationReview.admin_notes} /></div>
+        <ApplicationDocuments application={selectedApplicationReview} />
+        <div className="mt-5 flex flex-wrap gap-2"><button type="button" disabled={applicationActionId === selectedApplicationReview.id} onClick={() => void approveApplication(selectedApplicationReview)} className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-xs font-bold text-brand-foreground disabled:opacity-60">{applicationActionId === selectedApplicationReview.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Approve driver</button><button type="button" disabled={applicationActionId === selectedApplicationReview.id} onClick={() => void rejectApplication(selectedApplicationReview)} className="rounded-full border border-destructive/50 px-4 py-2 text-xs font-bold text-destructive disabled:opacity-60">Reject application</button></div>
       </div></div>}
     </div>
   );
@@ -433,4 +446,8 @@ function DeliveriesPage() {
 
 function Info({ label, value }: { label: string; value?: string | null }) {
   return <div className="rounded-xl bg-muted/50 p-3"><div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</div><div className="mt-0.5 break-words text-sm font-semibold">{value || "Not provided"}</div></div>;
+}
+
+function ApplicationDocuments({ application }: { application: DriverApplication }) {
+  return <section className="mt-5"><h3 className="font-display text-xl text-brand">Application documents</h3><div className="mt-2 grid gap-3 sm:grid-cols-2">{application.profile_photo_url && <div><div className="mb-1 text-xs font-semibold text-muted-foreground">Profile photo</div><ImagePreview src={application.profile_photo_url} alt={`${application.name} submitted profile photo`} className="h-52 w-full rounded-2xl border bg-muted object-contain" /></div>}{application.selfie_url && <div><div className="mb-1 text-xs font-semibold text-muted-foreground">Selfie with ID or licence</div><ImagePreview src={application.selfie_url} alt={`${application.name} selfie with identification`} className="h-52 w-full rounded-2xl border bg-muted object-contain" /></div>}{!application.profile_photo_url && !application.selfie_url && <div className="text-sm text-muted-foreground">No submitted document images.</div>}</div></section>;
 }

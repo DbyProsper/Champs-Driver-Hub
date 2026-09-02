@@ -314,6 +314,7 @@ function DriverPage() {
 
   async function reject(d: Delivery) {
     if (!driver) return;
+    if (d.proof_of_payment_url) return toast.error("This order cannot be rejected because the customer submitted proof of payment");
     const { error } = await (supabase.from("orders") as any).update({ workflow_status: "rejected_by_driver" }).eq("id", d.order_id).eq("driver_id", driver.id);
     if (error) return toast.error(error.message);
     await (supabase.from("deliveries") as any).update({ driver_id: null, status: "pending" }).eq("id", d.id);
@@ -638,7 +639,7 @@ function DriverPage() {
               )}
 
                 {tab === "available" ? (
-                <div className="grid grid-cols-2 gap-2"><button disabled={!!actionBusy} onClick={() => void runAction(`accept-${d.id}`, () => accept(d))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-brand-foreground disabled:opacity-60">{actionBusy === `accept-${d.id}` && <Loader2 className="h-4 w-4 animate-spin" />}Accept order</button><button disabled={!!actionBusy} onClick={() => void runAction(`reject-${d.id}`, () => reject(d))} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 py-3 text-sm font-bold text-destructive disabled:opacity-60">{actionBusy === `reject-${d.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject</button></div>
+                <div className="grid grid-cols-2 gap-2"><button disabled={!!actionBusy} onClick={() => void runAction(`accept-${d.id}`, () => accept(d))} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand py-3 text-sm font-bold text-brand-foreground disabled:opacity-60">{actionBusy === `accept-${d.id}` && <Loader2 className="h-4 w-4 animate-spin" />}Accept order</button><button disabled={!!actionBusy || Boolean(d.proof_of_payment_url)} onClick={() => void runAction(`reject-${d.id}`, () => reject(d))} title={d.proof_of_payment_url ? "Payment proof received; this order is protected from rejection" : undefined} className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/40 py-3 text-sm font-bold text-destructive disabled:opacity-60">{actionBusy === `reject-${d.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} {d.proof_of_payment_url ? "Payment received" : "Reject"}</button></div>
               ) : tab === "active" && d.status !== "delivered" ? (
                 d.status === "cancelled" ? (
                   <div className="rounded-xl bg-destructive/10 border border-destructive/30 px-3 py-3 text-sm font-semibold text-destructive">This delivery was cancelled. No further actions are available.</div>

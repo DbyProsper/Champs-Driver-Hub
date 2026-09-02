@@ -6,6 +6,9 @@ import { requestDriverApplication } from "@/lib/admin.functions";
 import { toast } from "sonner";
 import { SA_BANKS } from "@/lib/sa-banks";
 
+const MAX_DRIVER_IMAGE_BYTES = 2 * 1024 * 1024;
+type BranchOption = { id: string; name: string; city: string };
+
 export const Route = createFileRoute("/become-driver")({
   head: () => ({ meta: [{ title: "Become a driver — Champs" }, { name: "robots", content: "noindex" }] }),
   component: BecomeDriver,
@@ -27,6 +30,7 @@ function BecomeDriver() {
   });
   const [busy, setBusy] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -35,18 +39,46 @@ function BecomeDriver() {
         nav({ to: "/auth" });
         return;
       }
+      const [{ data: profile }, { data: branchRows }] = await Promise.all([
+        (supabase.from("profiles") as any).select("full_name,phone").eq("id", data.user.id).maybeSingle(),
+        supabase.from("branches").select("id,name,city").eq("is_active", true).order("sort_order"),
+      ]);
+      setBranches((branchRows ?? []) as BranchOption[]);
+      setForm((current) => ({
+        ...current,
+        name: current.name || profile?.full_name || data.user.user_metadata?.full_name || data.user.user_metadata?.name || "",
+        phone: current.phone || profile?.phone || data.user.phone || data.user.user_metadata?.phone || "",
+      }));
       setCheckingAuth(false);
     })();
   }, [nav]);
 
-  async function uploadFile(file: File | null, keyPrefix: string) {
+  function imageSizeError(file: File, label: string) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    return `${label} “${file.name}” is ${sizeMb} MB. Please choose an image smaller than 2 MB.`;
+  }
+
+  function chooseImage(file: File | undefined, field: "profile_file" | "selfie_file", label: string) {
+    if (!file) return setForm((current) => ({ ...current, [field]: null }));
+    if (file.size > MAX_DRIVER_IMAGE_BYTES) {
+      toast.error(imageSizeError(file, label));
+      return setForm((current) => ({ ...current, [field]: null }));
+    }
+    setForm((current) => ({ ...current, [field]: file }));
+  }
+
+  async function uploadFile(file: File | null, keyPrefix: string, label: string) {
     if (!file) return null;
+    if (file.size > MAX_DRIVER_IMAGE_BYTES) throw new Error(imageSizeError(file, label));
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData.user) throw new Error("Please sign in again before uploading documents");
     const id = `${Date.now()}_${file.name}`;
     const path = `${authData.user.id}/${keyPrefix}/${id}`;
     const { error } = await supabase.storage.from("driver-uploads").upload(path, file);
-    if (error) throw error;
+    if (error) {
+      if (/maximum allowed file size|exceeded|too large/i.test(error.message)) throw new Error(imageSizeError(file, label));
+      throw error;
+    }
     const { data: urlData } = await supabase.storage.from("driver-uploads").getPublicUrl(path);
     return urlData.publicUrl;
   }
@@ -56,11 +88,13 @@ function BecomeDriver() {
     if (!form.name.trim() || !form.phone.trim()) return toast.error("Name and phone required");
     if (!form.student_number.trim() && !/^\d{13}$/.test(form.id_number.trim())) return toast.error("Valid SA ID (13 digits) or driver's licence number required");
     if (!form.profile_file) return toast.error("A profile photo is required");
+    if (form.profile_file.size > MAX_DRIVER_IMAGE_BYTES) return toast.error(imageSizeError(form.profile_file, "Profile photo"));
+    if (form.selfie_file && form.selfie_file.size > MAX_DRIVER_IMAGE_BYTES) return toast.error(imageSizeError(form.selfie_file, "Selfie with ID or licence"));
     if (!form.bank_name.trim() || !form.bank_account_number.trim() || !form.bank_account_holder.trim()) return toast.error("Complete all banking details");
     setBusy(true);
     try {
-      const profileUrl = await uploadFile(form.profile_file, "profile_photos");
-      const selfieUrl = await uploadFile(form.selfie_file, "selfies");
+      const profileUrl = await uploadFile(form.profile_file, "profile_photos", "Profile photo");
+      const selfieUrl = await uploadFile(form.selfie_file, "selfies", "Selfie with ID or licence");
       await requestDriverApplication({
         data: {
           name: form.name,
@@ -115,6 +149,11 @@ function BecomeDriver() {
           <input placeholder="ID number (13 digits)" value={form.id_number} onChange={(e) => setForm({ ...form, id_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
           <input placeholder="Driver's licence number (use instead of ID)" value={form.student_number} onChange={(e) => setForm({ ...form, student_number: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand" />
 
+          <select value={form.branch_id} onChange={(e) => setForm({ ...form, branch_id: e.target.value })} className="w-full rounded-2xl border border-input bg-background px-4 py-3 text-sm focus:border-brand">
+            <option value="">Select the branch you want to work with</option>
+            {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}{branch.city ? ` · ${branch.city}` : ""}</option>)}
+          </select>
+
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block rounded-3xl border border-dashed border-border bg-background p-4 text-sm">
               <div className="mb-2 font-semibold">Profile photo</div>
@@ -122,7 +161,7 @@ function BecomeDriver() {
                 <span className="truncate text-sm text-muted-foreground">{form.profile_file ? form.profile_file.name : "Choose a profile image"}</span>
                 <span className="rounded-full bg-brand px-3 py-1 text-[11px] font-bold text-brand-foreground">Upload</span>
               </div>
-              <input className="sr-only" type="file" accept="image/*" onChange={(e) => setForm({ ...form, profile_file: e.target.files?.[0] ?? null })} />
+              <input className="sr-only" type="file" accept="image/*" onChange={(e) => chooseImage(e.target.files?.[0], "profile_file", "Profile photo")} />
             </label>
 
             <label className="block rounded-3xl border border-dashed border-border bg-background p-4 text-sm">
@@ -131,7 +170,7 @@ function BecomeDriver() {
                 <span className="truncate text-sm text-muted-foreground">{form.selfie_file ? form.selfie_file.name : "Choose a selfie image"}</span>
                 <span className="rounded-full bg-brand px-3 py-1 text-[11px] font-bold text-brand-foreground">Upload</span>
               </div>
-              <input className="sr-only" type="file" accept="image/*" onChange={(e) => setForm({ ...form, selfie_file: e.target.files?.[0] ?? null })} />
+              <input className="sr-only" type="file" accept="image/*" onChange={(e) => chooseImage(e.target.files?.[0], "selfie_file", "Selfie with ID or licence")} />
             </label>
           </div>
 

@@ -61,16 +61,17 @@ async function logServerAdminAction(context: { userId?: string | null }, action:
 }
 
 async function getVisibleDriversForAdmin() {
-  let driverRows: Array<{ id: string; user_id: string | null; name: string; phone: string; status: string; profile_image_url: string | null; rating: number; rating_count: number; approval_status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; suspended_until: string | null; suspension_reason: string | null; created_at: string; updated_at: string }> = [];
-  let applicationRows: Array<{ id: string; user_id: string; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
+  let driverRows: Array<{ id: string; user_id: string | null; email: string | null; name: string; phone: string; status: string; profile_image_url: string | null; rating: number; rating_count: number; approval_status: string; branch_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; suspended_until: string | null; suspension_reason: string | null; created_at: string; updated_at: string }> = [];
+  let applicationRows: Array<{ id: string; user_id: string; email: string | null; name: string; phone: string; branch_id: string | null; id_number: string | null; student_number: string | null; profile_photo_url: string | null; selfie_url: string | null; bank_name: string | null; bank_account_number: string | null; bank_account_holder: string | null; status: string; created_at: string; admin_notes: string | null }> = [];
 
-  const [{ data: drivers, error: driversError }, { data: applications, error: applicationsError }] = await Promise.all([
+  const [{ data: drivers, error: driversError }, { data: applications, error: applicationsError }, { data: authDirectory, error: authDirectoryError }] = await Promise.all([
     // include banking fields so admin UI can show full driver info
     supabaseAdmin
       .from("drivers")
       .select("id,user_id,name,phone,status,profile_image_url,rating,rating_count,branch_id,bank_name,bank_account_number,bank_account_holder,approval_status,suspended_until,suspension_reason,created_at,updated_at")
       .order("created_at", { ascending: false }),
     supabaseAdmin.from("driver_applications").select("id,user_id,name,phone,branch_id,id_number,student_number,profile_photo_url,selfie_url,bank_name,bank_account_number,bank_account_holder,status,created_at,admin_notes").order("created_at", { ascending: false }),
+    supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
   ]);
 
   if (driversError) {
@@ -79,9 +80,13 @@ async function getVisibleDriversForAdmin() {
   if (applicationsError) {
     throw applicationsError;
   }
+  if (authDirectoryError) {
+    throw authDirectoryError;
+  }
 
-  driverRows = (drivers ?? []) as typeof driverRows;
-  applicationRows = (applications ?? []) as typeof applicationRows;
+  const emailByUserId = new Map((authDirectory.users ?? []).map((user) => [user.id, user.email ?? null]));
+  driverRows = ((drivers ?? []) as Omit<(typeof driverRows)[number], "email">[]).map((driver) => ({ ...driver, email: driver.user_id ? emailByUserId.get(driver.user_id) ?? null : null }));
+  applicationRows = ((applications ?? []) as Omit<(typeof applicationRows)[number], "email">[]).map((application) => ({ ...application, email: emailByUserId.get(application.user_id) ?? null }));
 
   if (driverRows.length === 0) {
     return { drivers: driverRows, applications: applicationRows };

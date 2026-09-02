@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+let unreadChannelSequence = 0;
+
 export function UnreadMessageBadge({ orderId, conversationType }: { orderId?: string; conversationType: "customer_driver" | "driver_admin" }) {
   const [count, setCount] = useState(0);
 
@@ -24,8 +26,9 @@ export function UnreadMessageBadge({ orderId, conversationType }: { orderId?: st
 
   useEffect(() => {
     void load();
+    const channelSequence = ++unreadChannelSequence;
     const channel = supabase
-      .channel(`unread-chat:${conversationType}:${orderId ?? "general"}`)
+      .channel(`unread-chat:${conversationType}:${orderId ?? "general"}:${channelSequence}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => void load())
       .subscribe();

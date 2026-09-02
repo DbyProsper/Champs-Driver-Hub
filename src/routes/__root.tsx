@@ -123,6 +123,18 @@ function RootComponent() {
     return () => window.clearTimeout(id);
   }, [pathname, routerStatus]);
 
+  useEffect(() => {
+    const ignoreBrokenWebVitalsReport = (event: ErrorEvent) => {
+      const message = event.message || event.error?.message || "";
+      const stack = event.error?.stack || "";
+      if (message.includes("Cannot read properties of undefined (reading 'startTime')") && stack.includes("reportAllChanges")) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("error", ignoreBrokenWebVitalsReport, true);
+    return () => window.removeEventListener("error", ignoreBrokenWebVitalsReport, true);
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BranchProvider>
