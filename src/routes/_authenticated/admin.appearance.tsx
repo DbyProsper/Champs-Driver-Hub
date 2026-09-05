@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Image, Paintbrush, Save, Upload, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Image, Loader2, Paintbrush, Plus, Save, Upload, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,6 +37,7 @@ function AppearanceAdmin() {
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [branches, setBranches] = useState<EditableBranch[]>([]);
   const [branchDirty, setBranchDirty] = useState<Record<string, Partial<EditableBranch>>>({});
+  const [previewSlideIndex, setPreviewSlideIndex] = useState(0);
 
   async function load() {
     const [settingsResult, mediaResult, branchResult] = await Promise.all([
@@ -52,6 +53,52 @@ function AppearanceAdmin() {
   useEffect(() => { load(); }, []);
 
   const mediaMap = useMemo(() => new Map(media.map((item) => [item.image_key, item])), [media]);
+  const slideshowKeys = useMemo(
+    () => settings.hero_slideshow_keys?.length ? settings.hero_slideshow_keys : [settings.hero_image_key],
+    [settings.hero_image_key, settings.hero_slideshow_keys],
+  );
+  const selectableHeroMedia = useMemo(() => media.filter((asset) => asset.is_active), [media]);
+  const heroSlideDurationMs = Math.min(30, Math.max(2, settings.hero_slide_duration_seconds ?? 6)) * 1000;
+  const heroImageOpacity = Math.min(100, Math.max(0, settings.hero_image_opacity ?? 100)) / 100;
+
+  useEffect(() => {
+    setPreviewSlideIndex(0);
+    if (slideshowKeys.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = window.setInterval(() => {
+      setPreviewSlideIndex((current) => (current + 1) % slideshowKeys.length);
+    }, heroSlideDurationMs);
+    return () => window.clearInterval(timer);
+  }, [heroSlideDurationMs, slideshowKeys]);
+
+  function updateSlideshow(nextKeys: string[]) {
+    const uniqueKeys = [...new Set(nextKeys)].slice(0, 12);
+    if (uniqueKeys.length === 0) {
+      toast.error("The hero slideshow must contain at least one image");
+      return;
+    }
+    patchSettings({ hero_slideshow_keys: uniqueKeys, hero_image_key: uniqueKeys[0] });
+  }
+
+  function moveHeroSlide(index: number, direction: -1 | 1) {
+    const destination = index + direction;
+    if (destination < 0 || destination >= slideshowKeys.length) return;
+    const nextKeys = [...slideshowKeys];
+    [nextKeys[index], nextKeys[destination]] = [nextKeys[destination], nextKeys[index]];
+    updateSlideshow(nextKeys);
+  }
+
+  function addHeroSlide(key: string) {
+    if (slideshowKeys.includes(key)) return;
+    if (slideshowKeys.length >= 12) {
+      toast.error("The hero slideshow supports up to 12 images");
+      return;
+    }
+    updateSlideshow([...slideshowKeys, key]);
+  }
+
+  function removeHeroSlide(key: string) {
+    updateSlideshow(slideshowKeys.filter((item) => item !== key));
+  }
 
   async function saveSettings() {
     setBusy(true);
@@ -66,6 +113,8 @@ function AppearanceAdmin() {
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       void logAdminAction({ action_type: "site_settings_updated", action_description: "Updated site appearance settings", target_type: "site_settings", target_id: "main", metadata: { settings } });
       await load();
+      setSettingsDirty(false);
+      setBranchDirty({});
     } catch (err: any) {
       toast.error(err.message ?? "Could not save appearance");
     } finally {
@@ -177,22 +226,69 @@ function AppearanceAdmin() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_380px]">
-        <div className="space-y-4">
+      <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="min-w-0 space-y-4">
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Homepage hero</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Field label="Eyebrow"><input value={settings.hero_eyebrow} onChange={(e) => patchSettings({ hero_eyebrow: e.target.value })} className="input" /></Field>
-              <Field label="Hero image"><select value={settings.hero_image_key} onChange={(e) => patchSettings({ hero_image_key: e.target.value })} className="input">{[...new Set([...IMAGE_KEY_OPTIONS, ...media.map((m) => m.image_key)])].map((key) => <option key={key} value={key}>{mediaMap.get(key)?.title ?? key}</option>)}</select></Field>
+              <Field label="First slide"><select value={slideshowKeys[0]} onChange={(e) => updateSlideshow([e.target.value, ...slideshowKeys.filter((key) => key !== e.target.value)])} className="input">{[...new Set([...IMAGE_KEY_OPTIONS, ...selectableHeroMedia.map((m) => m.image_key)])].map((key) => <option key={key} value={key}>{mediaMap.get(key)?.title ?? key}</option>)}</select></Field>
               <Field label="Headline line 1"><input value={settings.hero_line_one} onChange={(e) => patchSettings({ hero_line_one: e.target.value })} className="input" /></Field>
               <Field label="Headline line 2"><input value={settings.hero_line_two} onChange={(e) => patchSettings({ hero_line_two: e.target.value })} className="input" /></Field>
               <Field label="Body"><textarea value={settings.hero_body} onChange={(e) => patchSettings({ hero_body: e.target.value })} rows={3} className="input" /></Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Image focus X"><input type="range" min={0} max={100} value={settings.hero_focus_x} onChange={(e) => patchSettings({ hero_focus_x: Number(e.target.value) })} /></Field>
                 <Field label="Image focus Y"><input type="range" min={0} max={100} value={settings.hero_focus_y} onChange={(e) => patchSettings({ hero_focus_y: Number(e.target.value) })} /></Field>
+                <Field label={`Slide timing (${settings.hero_slide_duration_seconds ?? 6} seconds)`}><input type="range" min={2} max={30} step={1} value={settings.hero_slide_duration_seconds ?? 6} onChange={(e) => patchSettings({ hero_slide_duration_seconds: Number(e.target.value) })} /></Field>
+                <Field label={`Image opacity (${settings.hero_image_opacity ?? 100}%)`}><input type="range" min={0} max={100} step={5} value={settings.hero_image_opacity ?? 100} onChange={(e) => patchSettings({ hero_image_opacity: Number(e.target.value) })} /></Field>
               </div>
               <Field label="Primary button"><input value={settings.primary_cta_label} onChange={(e) => patchSettings({ primary_cta_label: e.target.value })} className="input" /></Field>
               <Field label="Secondary button"><input value={settings.secondary_cta_label} onChange={(e) => patchSettings({ secondary_cta_label: e.target.value })} className="input" /></Field>
+            </div>
+            <div className="mt-5 border-t pt-4">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold">Hero slideshow images</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Choose images from the media library and arrange their display order.</p>
+                </div>
+                <span className="text-xs text-muted-foreground">{slideshowKeys.length}/12</span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {slideshowKeys.map((key, index) => {
+                  const asset = mediaMap.get(key);
+                  return (
+                    <div key={key} className="flex items-center gap-3 rounded-xl border bg-background p-2">
+                      <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-muted">
+                        <img src={imageSrcFor(key, media, "girls-lunch")} alt={asset?.alt || asset?.title || key} className="h-full w-full object-cover" />
+                        <span className="absolute left-1 top-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold text-brand-foreground">{index + 1}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">{asset?.title ?? key}</div>
+                        <div className="mt-2 flex gap-1">
+                          <button type="button" onClick={() => moveHeroSlide(index, -1)} disabled={index === 0} aria-label={`Move ${asset?.title ?? key} earlier`} className="rounded-full border p-1.5 hover:bg-muted disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => moveHeroSlide(index, 1)} disabled={index === slideshowKeys.length - 1} aria-label={`Move ${asset?.title ?? key} later`} className="rounded-full border p-1.5 hover:bg-muted disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
+                          <button type="button" onClick={() => removeHeroSlide(key)} disabled={slideshowKeys.length === 1} aria-label={`Remove ${asset?.title ?? key} from slideshow`} className="rounded-full border p-1.5 text-brand hover:bg-brand/10 disabled:opacity-30"><X className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {selectableHeroMedia.some((asset) => !slideshowKeys.includes(asset.image_key)) && (
+                <div className="mt-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Add from media library</div>
+                  <div className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2">
+                    <div className="flex w-max gap-2">
+                      {selectableHeroMedia.filter((asset) => !slideshowKeys.includes(asset.image_key)).map((asset) => (
+                        <button key={asset.id} type="button" onClick={() => addHeroSlide(asset.image_key)} className="group w-24 shrink-0 text-left" aria-label={`Add ${asset.title} to slideshow`}>
+                          <span className="relative block h-16 overflow-hidden rounded-lg border bg-muted"><img src={asset.src} alt={asset.alt} className="h-full w-full object-cover" /><span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"><Plus className="h-5 w-5 text-white" /></span></span>
+                          <span className="mt-1 block truncate text-[10px] font-semibold">{asset.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -209,7 +305,7 @@ function AppearanceAdmin() {
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Brand strip</h2>
             <Field label="Text below images"><input value={(settings as any).brand_tagline ?? "We love to serve."} onChange={(event) => patchSettings({ brand_tagline: event.target.value } as any)} className="input" /></Field>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">{BRAND_CARDS.map((card) => <div key={card.key} className="rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={card.label} className="aspect-square w-full rounded-xl object-cover" /><label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Upload className="h-3.5 w-3.5" /> Change image<input type="file" accept="image/*" className="sr-only" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadCategoryImage(card.key, card.label, file); event.target.value=""; }} /></label></div>)}</div>
+            <div className="mt-3 grid max-w-lg grid-cols-2 gap-3">{BRAND_CARDS.map((card) => <div key={card.key} className="min-w-0 rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={card.label} className="aspect-square w-full rounded-xl object-cover" /><label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Upload className="h-3.5 w-3.5" /> Change image<input type="file" accept="image/*" className="sr-only" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadCategoryImage(card.key, card.label, file); event.target.value=""; }} /></label></div>)}</div>
           </section>
 
           <section className="rounded-2xl border bg-card p-4">
@@ -221,8 +317,8 @@ function AppearanceAdmin() {
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Browse the menu images</h2>
             <p className="mt-1 text-xs text-muted-foreground">Upload each homepage category image individually. The current live image is shown below.</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {CATEGORY_CARDS.map((card) => <div key={card.key} className="rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={`${card.label} current image`} className="aspect-[4/3] w-full rounded-xl object-cover" /><div className="mt-2 flex items-center justify-between gap-2"><div><div className="font-semibold">{card.label}</div><div className="text-[10px] text-muted-foreground">Current homepage image</div></div><label className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground">{uploadingKey === card.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload<input type="file" accept="image/*" disabled={uploadingKey !== null} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, card.label, file); event.target.value = ""; }} /></label></div></div>)}
+            <div className="mt-3 grid max-w-lg grid-cols-2 gap-3">
+              {CATEGORY_CARDS.map((card) => <div key={card.key} className="min-w-0 rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={`${card.label} current image`} className="aspect-[4/3] w-full rounded-xl object-cover" /><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><div className="min-w-0"><div className="truncate font-semibold">{card.label}</div><div className="text-[10px] text-muted-foreground">Current homepage image</div></div><label className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground">{uploadingKey === card.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload<input type="file" accept="image/*" disabled={uploadingKey !== null} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, card.label, file); event.target.value = ""; }} /></label></div></div>)}
             </div>
           </section>
 
@@ -232,12 +328,12 @@ function AppearanceAdmin() {
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">{uploadingKey === "library" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload from device<input type="file" accept="image/*" className="sr-only" disabled={uploadingKey !== null} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLibraryImage(file); event.target.value = ""; }} /></label>
             <div className="mt-3 space-y-3">
               {media.map((asset) => {
-                const isHero = asset.image_key === settings.hero_image_key;
+                const heroPosition = slideshowKeys.indexOf(asset.image_key);
                 return (
                   <div key={asset.id} className="grid gap-2 rounded-xl border p-3 sm:grid-cols-[84px_1fr_auto]">
                     <div className="relative h-20 w-20">
                       <img src={asset.src} alt={asset.alt} className="h-20 w-20 rounded-lg object-cover" />
-                      {isHero && <span className="absolute -top-1 -right-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold uppercase text-brand-foreground">Hero</span>}
+                      {heroPosition >= 0 && <span className="absolute -top-1 -right-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold uppercase text-brand-foreground">Hero {heroPosition + 1}</span>}
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <input className="input" value={asset.title} onChange={(e) => patchAsset(asset.id, { title: e.target.value })} placeholder="Title" />
@@ -255,12 +351,21 @@ function AppearanceAdmin() {
 
         </div>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Preview</h2>
             <div className="mt-3 overflow-hidden rounded-2xl bg-charcoal text-white">
               <div className="relative aspect-[9/14]">
-                <img src={imageSrcFor(settings.hero_image_key, media, "girls-lunch")} alt="Hero preview" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%` }} />
+                {slideshowKeys.map((key, index) => (
+                  <img
+                    key={key}
+                    src={imageSrcFor(key, media, "girls-lunch")}
+                    alt={mediaMap.get(key)?.alt || mediaMap.get(key)?.title || `Hero slide ${index + 1}`}
+                    aria-hidden={index !== previewSlideIndex}
+                    className="absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none"
+                    style={{ objectPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%`, opacity: index === previewSlideIndex ? heroImageOpacity : 0 }}
+                  />
+                ))}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent" />
                 <div className="absolute bottom-0 p-5">
                   <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">{settings.hero_eyebrow}</div>

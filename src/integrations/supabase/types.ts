@@ -1155,7 +1155,10 @@ export type Database = {
           hero_eyebrow: string
           hero_focus_x: number
           hero_focus_y: number
+          hero_image_opacity: number
           hero_image_key: string
+          hero_slide_duration_seconds: number
+          hero_slideshow_keys: string[]
           hero_line_one: string
           hero_line_two: string
           id: string
@@ -1176,7 +1179,10 @@ export type Database = {
           hero_eyebrow?: string
           hero_focus_x?: number
           hero_focus_y?: number
+          hero_image_opacity?: number
           hero_image_key?: string
+          hero_slide_duration_seconds?: number
+          hero_slideshow_keys?: string[]
           hero_line_one?: string
           hero_line_two?: string
           id?: string
@@ -1197,7 +1203,10 @@ export type Database = {
           hero_eyebrow?: string
           hero_focus_x?: number
           hero_focus_y?: number
+          hero_image_opacity?: number
           hero_image_key?: string
+          hero_slide_duration_seconds?: number
+          hero_slideshow_keys?: string[]
           hero_line_one?: string
           hero_line_two?: string
           id?: string

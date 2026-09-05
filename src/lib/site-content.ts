@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 
 export type SiteSettings = Database["public"]["Tables"]["site_settings"]["Row"];
 export type MediaAsset = Database["public"]["Tables"]["media_assets"]["Row"];
@@ -9,6 +10,7 @@ export const LOCAL_IMAGE_SRC = {
   "girls-lunch": "/images/champs/girls-lunch.jpg",
   "chicken-hero": "/images/champs/chicken-hero.jpg",
   "chicken-chips": "/images/champs/chicken-chips.jpg",
+  "champs-facebook-info": "/images/champs/ChampsFacebookinfo.jpg",
   chef: "/images/champs/chef.jpg",
   couple: "/images/champs/couple.jpg",
   "burger-card": "/images/champs/champs-burger.jpg",
@@ -26,8 +28,11 @@ export const FALLBACK_SETTINGS: SiteSettings = {
   hero_line_two: "Champs Chicken.",
   hero_body: "Freshly fried chicken, loaded chips and legendary combos. Order for pickup or delivery in your town.",
   hero_image_key: "girls-lunch",
+  hero_slideshow_keys: ["girls-lunch", "chicken-chips", "chicken-hero", "couple", "champs-facebook-info"],
   hero_focus_x: 50,
   hero_focus_y: 30,
+  hero_image_opacity: 100,
+  hero_slide_duration_seconds: 6,
   primary_cta_label: "Order now",
   secondary_cta_label: "Track order",
   theme: "classic-red",
@@ -68,7 +73,11 @@ export const siteContentQuery = queryOptions({
 
     return {
       settings: (settingsResult.data as SiteSettings | null) ?? FALLBACK_SETTINGS,
-      media: ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA).length > 0 ? ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA) : FALLBACK_MEDIA,
+      media: mergePublicMenuMedia(
+        ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA).length > 0
+          ? ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA)
+          : FALLBACK_MEDIA,
+      ),
     };
   },
 });

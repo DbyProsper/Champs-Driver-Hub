@@ -28,7 +28,13 @@ function Home() {
   const queryClient = useQueryClient();
   const settings = content?.settings ?? FALLBACK_SETTINGS;
   const media = content?.media ?? [];
-  const heroSrc = imageSrcFor(settings.hero_image_key, media, "girls-lunch");
+  const heroSlideKeys = settings.hero_slideshow_keys?.length ? settings.hero_slideshow_keys : [settings.hero_image_key];
+  const heroSlides = heroSlideKeys
+    .map((key) => imageSrcFor(key, media, "girls-lunch"))
+    .filter((src, index, slides) => slides.indexOf(src) === index);
+  const heroSlideDurationMs = Math.min(30, Math.max(2, settings.hero_slide_duration_seconds ?? 6)) * 1000;
+  const heroImageOpacity = Math.min(100, Math.max(0, settings.hero_image_opacity ?? 100)) / 100;
+  const [heroSlideIndex, setHeroSlideIndex] = useState(0);
   const headline = useTypewriter([settings.hero_line_one, settings.hero_line_two], { typeMs: 65, holdMs: 1600, eraseMs: 35 });
   const heroBody = settings.hero_body.replace("your town", active?.city ?? "your town");
   const branchPromos = promos.filter((promo) => !promo.branch_id || promo.branch_id === active?.id);
@@ -42,17 +48,30 @@ function Home() {
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient]);
 
+  useEffect(() => {
+    setHeroSlideIndex((current) => current % heroSlides.length);
+    if (heroSlides.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = window.setInterval(() => {
+      setHeroSlideIndex((current) => (current + 1) % heroSlides.length);
+    }, heroSlideDurationMs);
+    return () => window.clearInterval(timer);
+  }, [heroSlideDurationMs, heroSlides.length]);
+
   return (
     <div className="min-h-screen pb-24">
       <Header subtitle={active ? active.city + " · Since 1995" : "Since 1995"} />
 
-      {/* Hero with girls-lunch photo blended into brand dark. Mobile-first sizing + focal point that keeps faces in frame. */}
+      {/* Hero artwork rotates without changing the existing content or layout. */}
       <section className="relative overflow-hidden text-white min-h-[68vh] sm:min-h-[520px] flex">
-        <div
-          className="absolute inset-0 bg-cover"
-          style={{ backgroundImage: `url(${heroSrc})`, backgroundPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%` }}
-          aria-hidden
-        />
+        <div className="absolute inset-0" aria-hidden>
+          {heroSlides.map((src, index) => (
+            <div
+              key={src}
+              className="absolute inset-0 bg-cover transition-opacity duration-1000 motion-reduce:transition-none"
+              style={{ backgroundImage: `url(${src})`, backgroundPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%`, opacity: index === heroSlideIndex ? heroImageOpacity : 0 }}
+            />
+          ))}
+        </div>
         <div className="absolute inset-0 bg-gradient-to-br from-[#1a0708]/95 via-[#2b0a0c]/80 to-brand/60 mix-blend-multiply" aria-hidden />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,transparent_20%,rgba(0,0,0,0.75)_85%)]" aria-hidden />
 

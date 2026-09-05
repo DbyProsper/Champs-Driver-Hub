@@ -1,4 +1,4 @@
-// Foreground browser notifications (Notification API). No service worker required.
+// Browser notifications are delivered through the service worker when available.
 export function notificationsSupported() {
   return typeof window !== "undefined" && "Notification" in window;
 }
@@ -28,6 +28,8 @@ export function fireNotification(title: string, body: string, tag?: string) {
     tag,
     icon: "/images/champs/champs-logo.png",
     badge: "/favicon.ico",
+    silent: false,
+    renotify: Boolean(tag),
     data: { url: typeof window === "undefined" ? "/" : window.location.href },
   };
   if ("serviceWorker" in navigator) {

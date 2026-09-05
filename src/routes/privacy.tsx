@@ -19,7 +19,7 @@ function PrivacyPage() {
           <ul className="list-disc list-inside text-sm">
             <li>Account information: name, email, phone number, address when you create an account.</li>
             <li>Order information: items ordered, order number, delivery/pickup details, and payment status.</li>
-            <li>Driver information: for delivery drivers we may store bank details and verification documents to process payments.</li>
+            <li>Driver information: for delivery drivers we may store location, bank details and verification documents to process payments.</li>
             <li>Usage data: device and browser information, IP addresses, and analytics to improve the service.</li>
           </ul>
           <h2 className="font-semibold mt-4">How We Use Information</h2>
