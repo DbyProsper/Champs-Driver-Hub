@@ -46,12 +46,13 @@ export const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
   auto_ready_mode: "prompt",
 };
 
-export async function fetchDeliverySettings(): Promise<DeliverySettings> {
-  const { data } = await supabase
+export async function fetchDeliverySettings(branchId?: string | null): Promise<DeliverySettings> {
+  const query = supabase
     .from("delivery_settings")
-    .select("*")
-    .eq("id", "default")
-    .maybeSingle();
+    .select("*");
+  const { data } = branchId
+    ? await (query as any).eq("branch_id", branchId).maybeSingle()
+    : await query.eq("id", "default").maybeSingle();
   if (!data) return DEFAULT_DELIVERY_SETTINGS;
   const d = data as Record<string, unknown>;
   const num = (k: string, fallback: number) => (d[k] == null ? fallback : Number(d[k]));

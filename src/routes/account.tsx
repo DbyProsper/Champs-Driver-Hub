@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { requestDriverApplication } from "@/lib/admin.functions";
 import { getMenuImageForItem } from "@/lib/menu-images";
 import { AccountPageSkeleton } from "@/components/Loader";
+import { useBranch } from "@/lib/branch";
 
 export const Route = createFileRoute("/account")({
   head: () => ({
@@ -24,6 +25,7 @@ export const Route = createFileRoute("/account")({
 });
 
 function Account() {
+  const { active: activeBranch } = useBranch();
   const nav = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ full_name: string | null; phone: string | null } | null>(null);
@@ -99,6 +101,7 @@ function Account() {
   const { data: orders = [] } = useQuery(myOrdersQuery(userId));
   const { data: menu } = useQuery(menuQuery);
   const { data: promos = [] } = useQuery(activePromotionsQuery);
+  const branchPromos = useMemo(() => promos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id), [promos, activeBranch?.id]);
   const { add } = useCart();
 
   // "For You" heuristic: most-ordered items by this customer, then popular fallbacks
@@ -236,14 +239,14 @@ function Account() {
         </div>
 
         {/* Weekly specials */}
-        {promos.length > 0 && (
+        {branchPromos.length > 0 && (
           <section>
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-brand" /><h2 className="font-display text-2xl">Specials for you</h2></div>
               <Link to="/menu" hash="promos" className="rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">Go to menu</Link>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              {promos.map((p) => { const matchingItem = menu?.items.find((item) => item.name.trim().toLowerCase() === p.title.trim().toLowerCase()); const image = p.image_url || matchingItem?.image_url || getMenuImageForItem(matchingItem?.name ?? p.title, matchingItem?.variant_label ?? null).src; return (
+              {branchPromos.map((p) => { const matchingItem = menu?.items.find((item) => (!item.branch_id || item.branch_id === activeBranch?.id) && item.name.trim().toLowerCase() === p.title.trim().toLowerCase()); const image = p.image_url || matchingItem?.image_url || getMenuImageForItem(matchingItem?.name ?? p.title, matchingItem?.variant_label ?? null).src; return (
                 <div key={p.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2">
                   <img src={image} alt={p.title} className="h-14 w-14 shrink-0 rounded-lg bg-muted object-cover" />
                   <div className="min-w-0">

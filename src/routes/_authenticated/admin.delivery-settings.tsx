@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DEFAULT_DELIVERY_SETTINGS, fetchDeliverySettings, type DeliverySettings } from "@/lib/delivery";
 import { logAdminAction } from "@/lib/audit";
+import { AdminBranchScope, type AdminBranch } from "@/components/AdminBranchScope";
 
 export const Route = createFileRoute("/_authenticated/admin/delivery-settings")({
   head: () => ({ meta: [{ title: "Delivery Settings — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -15,18 +16,26 @@ function DeliverySettingsPage() {
   const [s, setS] = useState<DeliverySettings>(DEFAULT_DELIVERY_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [branches, setBranches] = useState<AdminBranch[]>([]);
+  const [scope, setScope] = useState("both");
 
   useEffect(() => {
-    fetchDeliverySettings().then(setS).finally(() => setLoading(false));
+    void supabase.from("branches").select("id,name,city").order("sort_order").then(({ data }) => setBranches((data ?? []) as AdminBranch[]));
   }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchDeliverySettings(scope === "both" ? null : scope).then(setS).finally(() => setLoading(false));
+  }, [scope]);
 
   async function save() {
     setSaving(true);
-    const { error } = await supabase.from("delivery_settings").update(s as never).eq("id", "default");
+    const id = scope === "both" ? "default" : `branch:${scope}`;
+    const { error } = await (supabase.from("delivery_settings") as any).upsert({ ...s, id, branch_id: scope === "both" ? null : scope }, { onConflict: "id" });
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success("Delivery settings saved");
-    void logAdminAction({ action_type: "delivery_settings_updated", action_description: "Updated delivery settings", target_type: "delivery_settings", target_id: "default", metadata: { settings: s } });
+    void logAdminAction({ action_type: "delivery_settings_updated", action_description: `Updated delivery settings for ${scope === "both" ? "both branches" : branches.find((branch) => branch.id === scope)?.name ?? "branch"}`, target_type: "delivery_settings", target_id: id, metadata: { settings: s, branch_id: scope === "both" ? null : scope } });
   }
 
   const field = (label: string, key: keyof DeliverySettings, step: number | string = 0.1, hint?: string) => (
@@ -55,6 +64,7 @@ function DeliverySettingsPage() {
         </div>
       </header>
       <div className="mx-auto max-w-3xl px-4 py-4 space-y-4">
+        <AdminBranchScope branches={branches} value={scope} onChange={setScope} />
         <section className="rounded-2xl border bg-card p-4 space-y-3">
           <h2 className="font-display text-lg text-brand">Delivery options</h2>
           <label className="flex items-center gap-3 rounded-xl border p-3 text-sm"><input type="checkbox" checked={s.delivery_enabled} onChange={(e) => setS({ ...s, delivery_enabled: e.target.checked })} /><span><span className="font-semibold">Delivery enabled</span><span className="block text-xs text-muted-foreground">Allow customers to choose delivery.</span></span></label>

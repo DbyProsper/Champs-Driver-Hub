@@ -9,6 +9,8 @@ import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import { useQueryClient } from "@tanstack/react-query";
 import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import type { MediaAsset } from "@/lib/site-content";
+import { AdminBranchScope } from "@/components/AdminBranchScope";
+import { fromJohannesburgInput, toJohannesburgInput } from "@/lib/promotion-schedule";
 
 export const Route = createFileRoute("/_authenticated/admin/promotions")({
   head: () => ({ meta: [{ title: "Promotions — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -29,6 +31,7 @@ type Promo = {
   is_active: boolean;
   sort_order: number;
   comes_with_drink: boolean;
+  is_recurring: boolean;
 };
 type Branch = { id: string; name: string; city: string };
 
@@ -39,10 +42,11 @@ function PromoAdmin() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [dirty, setDirty] = useState<Record<string, Partial<Promo>>>({});
-  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false });
+  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false, is_recurring: false });
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [pickerFor, setPickerFor] = useState<"new" | string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [scope, setScope] = useState("both");
 
   async function load() {
     const [p, b, m] = await Promise.all([
@@ -85,6 +89,7 @@ function PromoAdmin() {
         image_url: promo.image_url ?? null,
         promotion_id: promo.id,
         comes_with_drink: promo.comes_with_drink,
+        branch_id: promo.branch_id,
       } as never;
       if (existing?.id) {
         const { error } = await supabase.from("menu_items").update(payload).eq("id", existing.id);
@@ -103,7 +108,8 @@ function PromoAdmin() {
     if (entries.length === 0) return true;
     for (const [id, patch] of entries) {
       const current = promos.find((item) => item.id === id);
-      const { error } = await supabase.from("promotions").update(patch).eq("id", id);
+      const normalizedPatch = patch.is_recurring ? { ...patch, active_until: null } : patch;
+      const { error } = await supabase.from("promotions").update(normalizedPatch as any).eq("id", id);
       if (error) { toast.error(error.message); return false; }
       if (current) await syncPromoMenuItem({ ...current, ...patch } as Promo);
     }
@@ -117,17 +123,19 @@ function PromoAdmin() {
 
   async function create() {
     if (!newP.title.trim()) { toast.error("Title required"); return; }
+    if (newP.is_recurring && newP.day_of_week === "") { toast.error("Choose the weekday to repeat this promotion"); return; }
     const payload: any = {
       title: newP.title.trim(),
       badge: newP.badge.trim() || null,
       description: newP.description.trim() || null,
       price_cents: newP.price_cents ? Math.round(Number(newP.price_cents) * 100) : null,
       image_url: newP.image_url.trim() || null,
-      active_from: newP.active_from ? new Date(newP.active_from).toISOString() : null,
-      active_until: newP.active_until ? new Date(newP.active_until).toISOString() : null,
+      active_from: fromJohannesburgInput(newP.active_from),
+      active_until: newP.is_recurring ? null : fromJohannesburgInput(newP.active_until),
       branch_id: newP.branch_id || null,
       day_of_week: newP.day_of_week === "" ? null : Number(newP.day_of_week),
       comes_with_drink: newP.comes_with_drink,
+      is_recurring: newP.is_recurring,
     };
     setBusyAction("create");
     const { data, error } = await supabase.from("promotions").insert(payload).select("*").single();
@@ -136,7 +144,7 @@ function PromoAdmin() {
     await syncPromoMenuItem(data as Promo);
     toast.success("Promo created");
     void logAdminAction({ action_type: "promotion_created", action_description: `Created promotion ${newP.title.trim()}`, target_type: "promotion", target_id: data.id, metadata: payload });
-    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false });
+    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: scope === "both" ? "" : scope, day_of_week: "", comes_with_drink: false, is_recurring: false });
     load();
   }
 
@@ -199,6 +207,7 @@ function PromoAdmin() {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-4 space-y-6">
+        <AdminBranchScope branches={branches} value={scope} onChange={(value) => { setScope(value); setNewP((current) => ({ ...current, branch_id: value === "both" ? "" : value })); }} />
         {/* Create */}
         <section className="rounded-2xl border bg-card p-4">
           <h2 className="font-display text-xl mb-3 inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New promotion</h2>
@@ -208,8 +217,8 @@ function PromoAdmin() {
             <input className="rounded-md border px-3 py-2 text-sm sm:col-span-2" placeholder="Description" value={newP.description} onChange={(e) => setNewP({ ...newP, description: e.target.value })} />
             {newP.image_url && <div className="sm:col-span-2"><div className="mb-1 text-xs font-semibold text-muted-foreground">Customer homepage preview</div><div className="aspect-square w-full max-w-64 overflow-hidden rounded-2xl border bg-muted"><img src={newP.image_url} alt="Selected promotion preview" className="h-full w-full object-cover" /></div></div>}
             <button type="button" onClick={() => setPickerFor("new")} className="inline-flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {newP.image_url ? "Change promo image" : "Choose promo image"}</button>
-            <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_from} onChange={(e) => setNewP({ ...newP, active_from: e.target.value })} />
-            <input type="datetime-local" className="rounded-md border px-3 py-2 text-sm" value={newP.active_until} onChange={(e) => setNewP({ ...newP, active_until: e.target.value })} />
+            <label className="grid gap-1 text-xs font-semibold text-muted-foreground">Starts (South Africa time)<input type="datetime-local" className="rounded-md border px-3 py-2 text-sm text-foreground" value={newP.active_from} onChange={(e) => setNewP({ ...newP, active_from: e.target.value })} /></label>
+            <label className="grid gap-1 text-xs font-semibold text-muted-foreground">Expires (South Africa time)<input type="datetime-local" disabled={newP.is_recurring} className="rounded-md border px-3 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50" value={newP.is_recurring ? "" : newP.active_until} onChange={(e) => setNewP({ ...newP, active_until: e.target.value })} /></label>
             <input type="number" step="0.01" className="rounded-md border px-3 py-2 text-sm" placeholder="Price (R, optional)" value={newP.price_cents} onChange={(e) => setNewP({ ...newP, price_cents: e.target.value })} />
             <select className="rounded-md border px-3 py-2 text-sm" value={newP.branch_id} onChange={(e) => setNewP({ ...newP, branch_id: e.target.value })}>
               <option value="">All branches</option>
@@ -219,6 +228,7 @@ function PromoAdmin() {
               <option value="">Every day</option>
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
+            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.is_recurring} onChange={(e) => setNewP({ ...newP, is_recurring: e.target.checked, active_until: e.target.checked ? "" : newP.active_until })} /> Repeat every selected weekday until deactivated</label>
             <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.comes_with_drink} onChange={(e) => setNewP({ ...newP, comes_with_drink: e.target.checked })} /> Comes with a drink — customer chooses at checkout</label>
           </div>
           <button onClick={create} disabled={busyAction === "create"} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{busyAction === "create" && <Loader2 className="h-4 w-4 animate-spin" />}Create promo</button>
@@ -228,8 +238,8 @@ function PromoAdmin() {
         <section>
           <h2 className="font-display text-xl mb-2">Active & scheduled</h2>
           <div className="space-y-2">
-            {promos.length === 0 && <div className="text-sm text-muted-foreground">No promotions yet.</div>}
-            {promos.map((p) => {
+            {promos.filter((promo) => scope === "both" ? promo.branch_id == null : promo.branch_id === scope).length === 0 && <div className="text-sm text-muted-foreground">No promotions for this branch selection yet.</div>}
+            {promos.filter((promo) => scope === "both" ? promo.branch_id == null : promo.branch_id === scope).map((p) => {
               const patch = dirty[p.id] ?? {};
               const cur = { ...p, ...patch };
               return (
@@ -251,13 +261,13 @@ function PromoAdmin() {
                   {cur.image_url && <div className="mt-2"><div className="mb-1 text-xs font-semibold text-muted-foreground">Customer homepage preview</div><div className="aspect-square w-full max-w-64 overflow-hidden rounded-2xl border bg-muted"><img src={cur.image_url} alt={`${cur.title} promotion preview`} className="h-full w-full object-cover" /></div></div>}
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     <button type="button" onClick={() => setPickerFor(p.id)} className="inline-flex items-center justify-center gap-2 rounded-md border px-2 py-1.5 text-sm font-semibold"><ImageIcon className="h-4 w-4" /> {cur.image_url ? "Change image" : "Choose image"}</button>
-                    <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_from ? cur.active_from.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_from: e.target.value ? new Date(e.target.value).toISOString() : null })} />
-                    <input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm" value={cur.active_until ? cur.active_until.slice(0, 16) : ""} onChange={(e) => edit(p.id, { active_until: e.target.value ? new Date(e.target.value).toISOString() : null })} />
+                    <label className="grid gap-1 text-[10px] font-semibold uppercase text-muted-foreground">Starts · South Africa time<input type="datetime-local" className="rounded-md border px-2 py-1.5 text-sm font-normal normal-case text-foreground" value={toJohannesburgInput(cur.active_from)} onChange={(e) => edit(p.id, { active_from: fromJohannesburgInput(e.target.value) })} /></label>
+                    <label className="grid gap-1 text-[10px] font-semibold uppercase text-muted-foreground">Expires · South Africa time<input type="datetime-local" disabled={cur.is_recurring} className="rounded-md border px-2 py-1.5 text-sm font-normal normal-case text-foreground disabled:cursor-not-allowed disabled:opacity-50" value={cur.is_recurring ? "" : toJohannesburgInput(cur.active_until)} onChange={(e) => edit(p.id, { active_until: fromJohannesburgInput(e.target.value) })} /></label>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs">
                     <div className="flex flex-wrap items-center gap-4"><label className="inline-flex items-center gap-2">
                       <input type="checkbox" checked={cur.is_active} onChange={(e) => edit(p.id, { is_active: e.target.checked })} /> Active
-                    </label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(p.id, { comes_with_drink: e.target.checked })} /> Comes with a drink</label></div>
+                    </label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.is_recurring} onChange={(e) => edit(p.id, { is_recurring: e.target.checked, active_until: e.target.checked ? null : cur.active_until })} /> Repeat weekly</label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(p.id, { comes_with_drink: e.target.checked })} /> Comes with a drink</label></div>
                     {cur.price_cents != null && <span className="tabular-nums text-muted-foreground">{formatZAR(cur.price_cents)}</span>}
                     <button onClick={() => remove(p.id)} className="inline-flex items-center gap-1 text-brand hover:underline"><Trash2 className="h-3 w-3" /> Delete</button>
                   </div>

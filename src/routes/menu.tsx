@@ -41,9 +41,10 @@ function MenuPage() {
   const activePromoTitles = useMemo(() => new Set(activePromos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id).map((promo) => promo.title.trim().toLowerCase())), [activePromos, activeBranch?.id]);
   const activePromoIds = useMemo(() => new Set(activePromos.filter((promo) => !promo.branch_id || promo.branch_id === activeBranch?.id).map((promo) => promo.id)), [activePromos, activeBranch?.id]);
   const visibleItems = useMemo(() => items.filter((item) => {
+    if (item.branch_id && item.branch_id !== activeBranch?.id) return false;
     const category = categories.find((entry) => entry.id === item.category_id);
     return category?.slug !== "promos" || (item.promotion_id ? activePromoIds.has(item.promotion_id) : activePromoTitles.has(item.name.trim().toLowerCase()));
-  }), [items, categories, activePromoIds, activePromoTitles]);
+  }), [items, categories, activeBranch?.id, activePromoIds, activePromoTitles]);
   const hasVisiblePromos = visibleItems.some((item) => categories.find((category) => category.id === item.category_id)?.slug === "promos");
   const displayCategories = useMemo(() => {
     const hasSalads = categories.some((c) => c.slug === "salads" || c.name.toLowerCase().includes("salad"));

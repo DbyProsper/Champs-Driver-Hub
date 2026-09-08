@@ -8,6 +8,7 @@ import { FALLBACK_MEDIA, FALLBACK_SETTINGS, imageSrcFor, type MediaAsset, type S
 import { logAdminAction } from "@/lib/audit";
 import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
+import { AdminBranchScope } from "@/components/AdminBranchScope";
 
 export const Route = createFileRoute("/_authenticated/admin/appearance")({
   head: () => ({ meta: [{ title: "Appearance — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -38,10 +39,11 @@ function AppearanceAdmin() {
   const [branches, setBranches] = useState<EditableBranch[]>([]);
   const [branchDirty, setBranchDirty] = useState<Record<string, Partial<EditableBranch>>>({});
   const [previewSlideIndex, setPreviewSlideIndex] = useState(0);
+  const [scope, setScope] = useState("both");
 
   async function load() {
     const [settingsResult, mediaResult, branchResult] = await Promise.all([
-      supabase.from("site_settings").select("*").eq("id", "main").maybeSingle(),
+      (supabase.from("site_settings") as any).select("*").eq("id", scope === "both" ? "main" : `branch:${scope}`).maybeSingle(),
       supabase.from("media_assets").select("*").order("sort_order"),
       (supabase as any).from("branches").select("id,name,address,city,postal_code,phone,whatsapp,email,facebook_url,instagram_url").order("sort_order"),
     ]);
@@ -50,7 +52,7 @@ function AppearanceAdmin() {
     setBranches((branchResult.data ?? []) as EditableBranch[]);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [scope]);
 
   const mediaMap = useMemo(() => new Map(media.map((item) => [item.image_key, item])), [media]);
   const slideshowKeys = useMemo(
@@ -103,7 +105,8 @@ function AppearanceAdmin() {
   async function saveSettings() {
     setBusy(true);
     try {
-      const { error } = await supabase.from("site_settings").upsert(settings);
+      const settingsId = scope === "both" ? "main" : `branch:${scope}`;
+      const { error } = await (supabase.from("site_settings") as any).upsert({ ...settings, id: settingsId, branch_id: scope === "both" ? null : scope }, { onConflict: "id" });
       if (error) throw error;
       for (const [id, patch] of Object.entries(branchDirty)) {
         const { error: branchError } = await (supabase as any).from("branches").update(patch).eq("id", id);
@@ -111,7 +114,7 @@ function AppearanceAdmin() {
       }
       toast.success("Appearance saved");
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
-      void logAdminAction({ action_type: "site_settings_updated", action_description: "Updated site appearance settings", target_type: "site_settings", target_id: "main", metadata: { settings } });
+      void logAdminAction({ action_type: "site_settings_updated", action_description: `Updated appearance for ${scope === "both" ? "both branches" : branches.find((branch) => branch.id === scope)?.name ?? "branch"}`, target_type: "site_settings", target_id: settingsId, metadata: { settings, branch_id: scope === "both" ? null : scope } });
       await load();
       setSettingsDirty(false);
       setBranchDirty({});
@@ -228,6 +231,7 @@ function AppearanceAdmin() {
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-4">
+          <AdminBranchScope branches={branches} value={scope} onChange={setScope} />
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Homepage hero</h2>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -311,7 +315,7 @@ function AppearanceAdmin() {
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Branch contact details</h2>
             <p className="mt-1 text-xs text-muted-foreground">Each branch can have its own address, phone, WhatsApp, email and social pages.</p>
-            <div className="mt-3 space-y-3">{branches.map((branch) => <div key={branch.id} className="rounded-xl border p-3"><h3 className="font-semibold">{branch.name}</h3><div className="mt-2 grid gap-2 sm:grid-cols-2"><input className="input sm:col-span-2" value={branch.address} onChange={(e) => patchBranch(branch.id,{address:e.target.value})} placeholder="Address" /><input className="input" value={branch.phone ?? ""} onChange={(e) => patchBranch(branch.id,{phone:e.target.value||null})} placeholder="Phone" /><input className="input" value={branch.whatsapp ?? ""} onChange={(e) => patchBranch(branch.id,{whatsapp:e.target.value||null})} placeholder="WhatsApp" /><input type="email" className="input sm:col-span-2" value={branch.email ?? ""} onChange={(e) => patchBranch(branch.id,{email:e.target.value||null})} placeholder="Branch email" /><input className="input" value={branch.facebook_url ?? ""} onChange={(e) => patchBranch(branch.id,{facebook_url:e.target.value||null})} placeholder="Facebook URL" /><input className="input" value={branch.instagram_url ?? ""} onChange={(e) => patchBranch(branch.id,{instagram_url:e.target.value||null})} placeholder="Instagram URL" /></div></div>)}</div>
+            <div className="mt-3 space-y-3">{branches.filter((branch) => scope === "both" || branch.id === scope).map((branch) => <div key={branch.id} className="rounded-xl border p-3"><h3 className="font-semibold">{branch.name}</h3><div className="mt-2 grid gap-2 sm:grid-cols-2"><input className="input sm:col-span-2" value={branch.address} onChange={(e) => patchBranch(branch.id,{address:e.target.value})} placeholder="Address" /><input className="input" value={branch.phone ?? ""} onChange={(e) => patchBranch(branch.id,{phone:e.target.value||null})} placeholder="Phone" /><input className="input" value={branch.whatsapp ?? ""} onChange={(e) => patchBranch(branch.id,{whatsapp:e.target.value||null})} placeholder="WhatsApp" /><input type="email" className="input sm:col-span-2" value={branch.email ?? ""} onChange={(e) => patchBranch(branch.id,{email:e.target.value||null})} placeholder="Branch email" /><input className="input" value={branch.facebook_url ?? ""} onChange={(e) => patchBranch(branch.id,{facebook_url:e.target.value||null})} placeholder="Facebook URL" /><input className="input" value={branch.instagram_url ?? ""} onChange={(e) => patchBranch(branch.id,{instagram_url:e.target.value||null})} placeholder="Instagram URL" /></div></div>)}</div>
           </section>
 
           <section className="rounded-2xl border bg-card p-4">

@@ -24,7 +24,7 @@ export const Route = createFileRoute("/")({
 function Home() {
   const { active } = useBranch();
   const { data: promos = [] } = useQuery(activePromotionsQuery);
-  const { data: content } = useQuery(siteContentQuery);
+  const { data: content } = useQuery(siteContentQuery(active?.id));
   const queryClient = useQueryClient();
   const settings = content?.settings ?? FALLBACK_SETTINGS;
   const media = content?.media ?? [];

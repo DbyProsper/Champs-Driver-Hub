@@ -310,7 +310,7 @@ function Admin() {
 
   async function toggleManualPeak() {
     try {
-      const { error } = await supabase.from("delivery_settings").update({ manual_peak_mode: !manualPeak } as any).eq("id", "default");
+      const { error } = await supabase.from("delivery_settings").update({ manual_peak_mode: !manualPeak } as any).not("id", "is", null);
       if (error) throw error;
       setManualPeak(!manualPeak);
       toast.success(!manualPeak ? "Peak mode enabled" : "Peak mode disabled");
@@ -323,7 +323,7 @@ function Admin() {
     if (shopToggleBusy) return;
     setShopToggleBusy(true);
     const next = !onlineOrderingOpen;
-    const { error } = await (supabase.from("site_settings") as any).update({ online_ordering_open: next }).eq("id", "main");
+    const { error } = await (supabase.from("site_settings") as any).update({ online_ordering_open: next }).not("id", "is", null);
     setShopToggleBusy(false);
     if (error) return toast.error(error.message);
     setOnlineOrderingOpen(next);
@@ -332,7 +332,7 @@ function Admin() {
   }
 
   async function togglePickup() {
-    const { error } = await (supabase.from("delivery_settings") as any).update({ pickup_enabled: !pickupEnabled }).eq("id", "default");
+    const { error } = await (supabase.from("delivery_settings") as any).update({ pickup_enabled: !pickupEnabled }).not("id", "is", null);
     if (error) return toast.error(error.message);
     setPickupEnabled(!pickupEnabled);
     toast.success(!pickupEnabled ? "Pickup enabled" : "Pickup disabled");

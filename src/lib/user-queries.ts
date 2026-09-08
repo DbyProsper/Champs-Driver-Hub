@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { promotionIsCurrent } from "@/lib/promotion-schedule";
 
 export const myOrdersQuery = (userId: string | null) =>
   queryOptions({
@@ -31,23 +32,13 @@ export const myOrdersQuery = (userId: string | null) =>
 export const activePromotionsQuery = queryOptions({
   queryKey: ["promotions"],
   queryFn: async () => {
-    const now = new Date().toISOString();
     const { data, error } = await supabase
       .from("promotions")
       .select("*")
       .eq("is_active", true)
-      .or(`active_from.is.null,active_from.lte.${now}`)
-      .or(`active_until.is.null,active_until.gte.${now}`)
       .order("sort_order");
     if (error) throw error;
-    const johannesburgDay = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).formatToParts(new Date()).find((part) => part.type === "weekday")?.value && new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).format(new Date()) ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Johannesburg", weekday: "short" }).format(new Date())) : new Date().getDay());
-    return (data ?? []).filter((promo: any) => {
-      if (!promo.is_active) return false;
-      if (promo.active_from && new Date(promo.active_from) > new Date()) return false;
-      if (promo.active_until && new Date(promo.active_until) < new Date()) return false;
-      if (promo.day_of_week != null && promo.day_of_week !== johannesburgDay) return false;
-      return true;
-    });
+    return (data ?? []).filter((promo: any) => promotionIsCurrent(promo));
   },
   staleTime: 30_000,
 });

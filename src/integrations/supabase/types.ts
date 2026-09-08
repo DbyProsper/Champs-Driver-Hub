@@ -304,6 +304,7 @@ export type Database = {
       }
       delivery_settings: {
         Row: {
+          branch_id: string | null
           avg_stop_min: number
           base_prep_min: number
           delivery_enabled: boolean
@@ -327,6 +328,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          branch_id?: string | null
           avg_stop_min?: number
           base_prep_min?: number
           delivery_enabled?: boolean
@@ -350,6 +352,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          branch_id?: string | null
           avg_stop_min?: number
           base_prep_min?: number
           delivery_enabled?: boolean
@@ -715,6 +718,7 @@ export type Database = {
       }
       menu_items: {
         Row: {
+          branch_id: string | null
           category_id: string
           comes_with_drink: boolean
           created_at: string
@@ -733,6 +737,7 @@ export type Database = {
           variant_label: string | null
         }
         Insert: {
+          branch_id?: string | null
           category_id: string
           comes_with_drink?: boolean
           created_at?: string
@@ -751,6 +756,7 @@ export type Database = {
           variant_label?: string | null
         }
         Update: {
+          branch_id?: string | null
           category_id?: string
           comes_with_drink?: boolean
           created_at?: string
@@ -1062,6 +1068,7 @@ export type Database = {
           id: string
           image_url: string | null
           is_active: boolean
+          is_recurring: boolean
           price_cents: number | null
           sort_order: number
           title: string
@@ -1079,6 +1086,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_active?: boolean
+          is_recurring?: boolean
           price_cents?: number | null
           sort_order?: number
           title: string
@@ -1096,6 +1104,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_active?: boolean
+          is_recurring?: boolean
           price_cents?: number | null
           sort_order?: number
           title?: string
@@ -1148,6 +1157,7 @@ export type Database = {
       }
       site_settings: {
         Row: {
+          branch_id: string | null
           brand_left_image_key: string
           brand_right_image_key: string
           brand_tagline: string
@@ -1172,6 +1182,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          branch_id?: string | null
           brand_left_image_key?: string
           brand_right_image_key?: string
           brand_tagline?: string
@@ -1196,6 +1207,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          branch_id?: string | null
           brand_left_image_key?: string
           brand_right_image_key?: string
           brand_tagline?: string

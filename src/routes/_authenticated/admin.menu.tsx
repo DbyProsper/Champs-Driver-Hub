@@ -10,6 +10,7 @@ import { logAdminAction } from "@/lib/audit";
 import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import { useQueryClient } from "@tanstack/react-query";
+import { AdminBranchScope, type AdminBranch } from "@/components/AdminBranchScope";
 
 export const Route = createFileRoute("/_authenticated/admin/menu")({
   head: () => ({ meta: [{ title: "Edit Menu — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -30,6 +31,7 @@ type Item = {
   burger_only_price_cents: number | null;
   icon_text: string | null;
   comes_with_drink: boolean;
+  branch_id: string | null;
 };
 
 type Cat = { id: string; name: string; slug: string; sort_order: number };
@@ -43,16 +45,20 @@ function MenuAdmin() {
   const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string; comes_with_drink: boolean }>>({});
   const [newCat, setNewCat] = useState("");
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [branches, setBranches] = useState<AdminBranch[]>([]);
+  const [scope, setScope] = useState("both");
 
   async function load() {
-    const [i, c, m] = await Promise.all([
+    const [i, c, m, b] = await Promise.all([
       supabase.from("menu_items").select("*").order("sort_order"),
       supabase.from("categories").select("*").order("sort_order"),
       supabase.from("media_assets").select("*").order("sort_order"),
+      supabase.from("branches").select("id,name,city").order("sort_order"),
     ]);
     setItems((i.data as Item[]) ?? []);
     setCats((c.data as Cat[]) ?? []);
     setMedia(mergePublicMenuMedia((m.data as MediaAsset[]) ?? []));
+    setBranches((b.data ?? []) as AdminBranch[]);
   }
   useEffect(() => { load(); }, []);
 
@@ -87,6 +93,7 @@ function MenuAdmin() {
       price_cents: Math.round(Number(n.price) * 100),
       sort_order: maxSort + 10,
       comes_with_drink: n.comes_with_drink,
+      branch_id: scope === "both" ? null : scope,
     } as never);
     if (error) toast.error(error.message);
     else {
@@ -105,7 +112,7 @@ function MenuAdmin() {
   }
 
   function moveItem(item: Item, direction: -1 | 1) {
-    const siblings = items.filter((entry) => entry.category_id === item.category_id).sort((a, b) => a.sort_order - b.sort_order);
+    const siblings = items.filter((entry) => entry.category_id === item.category_id && entry.branch_id === item.branch_id).sort((a, b) => a.sort_order - b.sort_order);
     const index = siblings.findIndex((entry) => entry.id === item.id);
     const other = siblings[index + direction];
     if (!other) return;
@@ -136,6 +143,7 @@ function MenuAdmin() {
       </header>
 
       <div className="mx-auto max-w-4xl px-4 py-4 space-y-6">
+        <AdminBranchScope branches={branches} value={scope} onChange={setScope} />
         {/* Add category */}
         <div className="rounded-xl border bg-card p-3 flex items-center gap-2">
           <input className="flex-1 rounded-md border px-3 py-2 text-sm" placeholder="New category name" value={newCat} onChange={(e) => setNewCat(e.target.value)} />
@@ -143,7 +151,7 @@ function MenuAdmin() {
         </div>
 
         {cats.map((c) => {
-          const catItems = items.filter((i) => i.category_id === c.id).sort((a, b) => a.sort_order - b.sort_order);
+          const catItems = items.filter((i) => i.category_id === c.id && (scope === "both" ? i.branch_id == null : i.branch_id == null || i.branch_id === scope)).sort((a, b) => a.sort_order - b.sort_order);
           const ni = newItem[c.id] ?? { name: "", variant: "", price: "", comes_with_drink: false };
           return (
             <section key={c.id}>
@@ -183,6 +191,7 @@ function MenuAdmin() {
                         onChange={(e) => edit(it.id, { variant_label: e.target.value || null })}
                       />
                       <label className="space-y-1 text-xs"><span className="text-muted-foreground">Category</span><select className="w-full rounded-md border px-2 py-1.5 text-sm" value={cur.category_id} onChange={(e) => edit(it.id, { category_id: e.target.value })}>{cats.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+                      <label className="space-y-1 text-xs"><span className="text-muted-foreground">Available at</span><select className="w-full rounded-md border px-2 py-1.5 text-sm" value={cur.branch_id ?? "both"} onChange={(e) => edit(it.id, { branch_id: e.target.value === "both" ? null : e.target.value })}><option value="both">Both branches</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.city || branch.name}</option>)}</select></label>
                       <input className="rounded-md border px-2 py-1.5 text-sm" maxLength={12} placeholder="Icon, e.g. 🍔" value={cur.icon_text ?? ""} onChange={(e) => edit(it.id, { icon_text: e.target.value || null })} />
                       <textarea className="min-h-20 rounded-md border px-2 py-1.5 text-sm sm:col-span-2" placeholder="Menu description" value={cur.description ?? ""} onChange={(e) => edit(it.id, { description: e.target.value || null })} />
                       <label className="space-y-1 text-xs"><span className="text-muted-foreground">Regular price</span>

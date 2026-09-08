@@ -110,11 +110,15 @@ function Checkout() {
   }).map((item) => item.id)), [items, menuData]);
 
   useEffect(() => {
-    fetchDeliverySettings().then(setSettings).catch(() => {});
+    fetchDeliverySettings(branch?.id).then(setSettings).catch(() => {});
     fetchActiveDeliveryCount().then(setActiveCount).catch(() => {});
     fetchOnlineDriverCount().then(setDriversOnline).catch(() => setDriversOnline(0));
     const loadShopStatus = async () => {
-      const { data } = await (supabase.from("site_settings") as any).select("online_ordering_open,online_ordering_closed_message").eq("id", "main").maybeSingle();
+      const [{ data: global }, { data: scoped }] = await Promise.all([
+        (supabase.from("site_settings") as any).select("online_ordering_open,online_ordering_closed_message").eq("id", "main").maybeSingle(),
+        branch?.id ? (supabase.from("site_settings") as any).select("online_ordering_open,online_ordering_closed_message").eq("branch_id", branch.id).maybeSingle() : Promise.resolve({ data: null }),
+      ]);
+      const data = scoped ?? global;
       setStoreOpen(data?.online_ordering_open !== false);
       if (data?.online_ordering_closed_message) setClosedMessage(data.online_ordering_closed_message);
     };
@@ -127,13 +131,13 @@ function Checkout() {
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
         fetchActiveDeliveryCount().then(setActiveCount).catch(() => {});
       })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "delivery_settings", filter: "id=eq.default" }, () => {
-        fetchDeliverySettings().then(setSettings).catch(() => {});
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "delivery_settings" }, () => {
+        fetchDeliverySettings(branch?.id).then(setSettings).catch(() => {});
       })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings", filter: "id=eq.main" }, () => void loadShopStatus())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings" }, () => void loadShopStatus())
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, []);
+  }, [branch?.id]);
 
   useEffect(() => {
     if (form.fulfillment !== "delivery" || !userId) { setDrivers([]); setSelectedDriverId(""); return; }

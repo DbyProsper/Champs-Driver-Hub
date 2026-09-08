@@ -20,6 +20,7 @@ export const LOCAL_IMAGE_SRC = {
 
 export const FALLBACK_SETTINGS: SiteSettings = {
   id: "main",
+  branch_id: null,
   brand_left_image_key: "couple",
   brand_right_image_key: "chef",
   brand_tagline: "We love to serve.",
@@ -63,16 +64,20 @@ export function imageSrcFor(key: string | null | undefined, media: MediaAsset[],
   return found?.src || LOCAL_IMAGE_SRC[fallbackKey];
 }
 
-export const siteContentQuery = queryOptions({
-  queryKey: ["site-content"],
+export const siteContentQuery = (branchId?: string | null) => queryOptions({
+  queryKey: ["site-content", branchId ?? "both"],
   queryFn: async (): Promise<{ settings: SiteSettings; media: MediaAsset[] }> => {
-    const [settingsResult, mediaResult] = await Promise.all([
+    const [settingsResult, branchSettingsResult, mediaResult] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", "main").maybeSingle(),
+      branchId ? (supabase.from("site_settings") as any).select("*").eq("branch_id", branchId).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from("media_assets").select("*").order("sort_order"),
     ]);
 
+    const globalSettings = (settingsResult.data as SiteSettings | null) ?? FALLBACK_SETTINGS;
+    const settings = branchSettingsResult.data ? { ...globalSettings, ...(branchSettingsResult.data as SiteSettings) } : globalSettings;
+
     return {
-      settings: (settingsResult.data as SiteSettings | null) ?? FALLBACK_SETTINGS,
+      settings,
       media: mergePublicMenuMedia(
         ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA).length > 0
           ? ((mediaResult.data as MediaAsset[] | null) ?? FALLBACK_MEDIA)

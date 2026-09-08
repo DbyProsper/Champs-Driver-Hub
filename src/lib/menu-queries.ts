@@ -17,6 +17,7 @@ export type MenuItem = {
   icon_text: string | null;
   comes_with_drink: boolean;
   promotion_id: string | null;
+  branch_id: string | null;
 };
 
 

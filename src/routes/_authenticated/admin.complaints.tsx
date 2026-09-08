@@ -4,6 +4,7 @@ import { ArrowLeft, Flag, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { ComplaintThread } from "@/components/ComplaintThread";
+import { AdminBranchScope, type AdminBranch } from "@/components/AdminBranchScope";
 
 export const Route = createFileRoute("/_authenticated/admin/complaints")({
   head: () => ({
@@ -23,6 +24,7 @@ type Complaint = {
   customer_id?: string;
   created_at: string;
   resolution?: string | null;
+  branch_id?: string | null;
 };
 
 function ComplaintsPage() {
@@ -31,9 +33,11 @@ function ComplaintsPage() {
   const [responses, setResponses] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [thread, setThread] = useState<Complaint | null>(null);
+  const [branches, setBranches] = useState<AdminBranch[]>([]);
+  const [scope, setScope] = useState("both");
 
   const load = useCallback(async () => {
-    const [{ data: complaints, error: complaintError }, { data: reports, error: reportError }] =
+    const [{ data: complaints, error: complaintError }, { data: reports, error: reportError }, { data: branchRows }] =
       await Promise.all([
         (supabase as any)
           .from("customer_complaints")
@@ -43,17 +47,28 @@ function ComplaintsPage() {
           .from("driver_reports")
           .select("id,reason,details,status,order_id,driver_id,customer_id,created_at,resolution")
           .order("created_at", { ascending: false }),
+        supabase.from("branches").select("id,name,city").order("sort_order"),
       ]);
     if (complaintError || reportError)
       toast.error(complaintError?.message ?? reportError?.message ?? "Could not load complaints");
-    const merged: Complaint[] = [
+    const mergedBase: Complaint[] = [
       ...(complaints ?? []).map((row: any) => ({ ...row, kind: "complaint" as const })),
       ...(reports ?? []).map((row: any) => ({
         ...row,
         kind: "driver_report" as const,
         subject: row.reason,
       })),
-    ].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    ];
+    const orderIds = [...new Set(mergedBase.map((item) => item.order_id).filter(Boolean))] as string[];
+    const driverIds = [...new Set(mergedBase.map((item) => item.driver_id).filter(Boolean))] as string[];
+    const [{ data: orderBranches }, { data: driverBranches }] = await Promise.all([
+      orderIds.length ? (supabase as any).from("orders").select("id,branch_id").in("id", orderIds) : Promise.resolve({ data: [] }),
+      driverIds.length ? supabase.from("drivers").select("id,branch_id").in("id", driverIds) : Promise.resolve({ data: [] }),
+    ]);
+    const orderMap = new Map((orderBranches ?? []).map((row: any) => [row.id, row.branch_id]));
+    const driverMap = new Map((driverBranches ?? []).map((row: any) => [row.id, row.branch_id]));
+    const merged = mergedBase.map((item) => ({ ...item, branch_id: (item.order_id ? orderMap.get(item.order_id) : null) ?? (item.driver_id ? driverMap.get(item.driver_id) : null) ?? null })).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    setBranches((branchRows ?? []) as AdminBranch[]);
     setItems(merged);
     setResponses((current) =>
       Object.fromEntries(
@@ -157,17 +172,18 @@ function ComplaintsPage() {
         </div>
       </header>
       <main className="mx-auto max-w-4xl space-y-3 px-4 py-4">
+        <AdminBranchScope branches={branches} value={scope} onChange={setScope} />
         {loading && (
           <div className="grid place-items-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-brand" />
           </div>
         )}
-        {!loading && items.length === 0 && (
+        {!loading && items.filter((item) => scope === "both" || item.branch_id === scope).length === 0 && (
           <div className="rounded-2xl border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
             No complaints or driver reports.
           </div>
         )}
-        {items.map((item) => (
+        {items.filter((item) => scope === "both" || item.branch_id === scope).map((item) => (
           <article key={`${item.kind}-${item.id}`} className="rounded-2xl border bg-card p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
