@@ -104,6 +104,16 @@ function ProfileSettings() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (window.location.hash !== "#complaints") return;
+    const frame = window.requestAnimationFrame(() => {
+      const section = document.getElementById("complaints");
+      section?.scrollIntoView({ behavior: "smooth", block: "start" });
+      section?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault();
     if (!userId) return;
@@ -235,7 +245,7 @@ function ProfileSettings() {
           <div><h2 className="font-display text-2xl">Appearance</h2><p className="text-xs text-muted-foreground">Switch between light and dark mode.</p></div>
           <ThemeToggle />
         </section>
-        <section id="complaints" className="rounded-2xl border bg-card p-4">
+        <section id="complaints" tabIndex={-1} className="scroll-mt-20 rounded-2xl border bg-card p-4 outline-none">
           <div className="flex items-center gap-2">
             <Flag className="h-4 w-4 text-brand" />
             <h2 className="font-display text-2xl">Complaints</h2>

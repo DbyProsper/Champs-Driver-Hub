@@ -575,7 +575,7 @@ function Checkout() {
                       <div className="text-right"><div className={`text-[10px] font-bold uppercase ${driver.status === "online" ? "text-emerald-600" : "text-muted-foreground"}`}>{driver.status === "online" ? "● Online" : "○ Offline"}</div><div className="mt-1 inline-flex items-center gap-1 text-xs"><Star className="h-3 w-3 fill-amber-400 text-amber-400" /> {Number(driver.rating || 0).toFixed(1)}</div></div>
                     </div>
                   ))}
-                  <a href="/account#complaints" className="inline-flex text-xs font-semibold text-destructive underline">Report a driver or submit a complaint</a>
+                  <Link to="/profile" hash="complaints" className="inline-flex text-xs font-semibold text-destructive underline">Report a driver or submit a complaint</Link>
                 </div>
               ) : (
                 <Link to="/auth" className="block rounded-xl border border-brand/30 bg-brand/5 p-3 text-center text-sm font-semibold text-brand">Sign in to choose and chat with a driver</Link>

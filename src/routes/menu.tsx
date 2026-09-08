@@ -268,7 +268,7 @@ function Row({ item }: { item: MenuItem }) {
   const description = getMenuDescription(item.name, item.variant_label, item.description);
 
   return (
-    <div className={cn("flex items-start gap-3 rounded-xl border border-border bg-card p-3", !available && "opacity-50")}>
+    <div className={cn("grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-3 rounded-xl border border-border bg-card p-3 sm:flex", !available && "opacity-50")}>
       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/60">
         <img src={image.src} alt={image.alt} className="h-full w-full object-cover" />
         {item.special_price_cents != null && (
@@ -279,12 +279,12 @@ function Row({ item }: { item: MenuItem }) {
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="font-semibold text-sm truncate">{label}</div>
+        <div className="flex items-start justify-between gap-2 sm:items-baseline sm:gap-3">
+          <div className="min-w-0 break-words text-sm font-semibold leading-snug sm:truncate">{label}</div>
           <div className="shrink-0 text-right"><div className="font-display text-lg text-brand">{formatZAR(item.special_price_cents ?? item.price_cents)}</div>{item.special_price_cents != null && <div className="text-[11px] text-muted-foreground line-through">{formatZAR(item.price_cents)}</div>}</div>
         </div>
         {description && (
-          <div className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
+          <div className="mt-0.5 break-words text-xs text-muted-foreground sm:line-clamp-2">
             <span aria-hidden className="mr-0 inline-block">{item.icon_text || getMenuIconForItem(item.name, item.variant_label ?? undefined)}</span>
             {description}
           </div>
@@ -292,7 +292,7 @@ function Row({ item }: { item: MenuItem }) {
         {!available && <div className="mt-0.5 text-[10px] uppercase tracking-wider text-brand font-bold">Sold out</div>}
       </div>
       {!available ? null : hasBurgerOnly ? (
-        <div className="flex shrink-0 flex-col gap-1.5">
+        <div className="col-start-2 flex shrink-0 flex-col items-end gap-1.5 justify-self-end sm:col-auto sm:items-stretch sm:justify-self-auto">
           <button onClick={() => { add({ id: mealLineId, menu_item_id: item.id, name: item.name, variant: item.variant_label || "Meal", unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url, comes_with_drink: item.comes_with_drink }); toast.success(`Added ${label} meal`); }} className="rounded-full bg-brand px-3 py-1.5 text-[11px] font-bold text-brand-foreground">Meal · {formatZAR(item.special_price_cents ?? item.price_cents)}</button>
           <button onClick={() => { add({ id: burgerLineId, menu_item_id: item.id, name: item.name, variant: "Burger only", unit_price_cents: item.burger_only_price_cents!, image_url: item.image_url, comes_with_drink: false }); toast.success(`Added ${item.name} burger only`); }} className="rounded-full border px-3 py-1.5 text-[11px] font-bold">Burger only · {formatZAR(item.burger_only_price_cents!)}</button>
         </div>
@@ -302,12 +302,12 @@ function Row({ item }: { item: MenuItem }) {
             add({ id: item.id, menu_item_id: item.id, name: item.name, variant: item.variant_label, unit_price_cents: item.special_price_cents ?? item.price_cents, image_url: item.image_url, comes_with_drink: item.comes_with_drink });
             toast.success(`Added ${label}`);
           }}
-          className="shrink-0 inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground hover:bg-brand-dark"
+          className="col-start-2 inline-flex shrink-0 items-center gap-1 justify-self-end rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground hover:bg-brand-dark sm:col-auto sm:justify-self-auto"
         >
           <Plus className="h-3.5 w-3.5" /> Add
         </button>
       ) : (
-        <div className="shrink-0 inline-flex items-center gap-2 rounded-full bg-muted px-1 py-1">
+        <div className="col-start-2 inline-flex shrink-0 items-center gap-2 justify-self-end rounded-full bg-muted px-1 py-1 sm:col-auto sm:justify-self-auto">
           <button onClick={() => setQty(item.id, qty - 1)} className="grid h-7 w-7 place-items-center rounded-full bg-background text-brand hover:bg-brand hover:text-brand-foreground">
             <Minus className="h-3.5 w-3.5" />
           </button>
