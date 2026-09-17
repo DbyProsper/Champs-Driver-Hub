@@ -66,7 +66,10 @@ function AppearanceAdmin() {
   const heroImageOpacity = Math.min(100, Math.max(0, settings.hero_image_opacity ?? 100)) / 100;
 
   useEffect(() => {
-    setPreviewSlideIndex(0);
+    setPreviewSlideIndex((current) => current < slideshowKeys.length ? current : 0);
+  }, [slideshowKeys.length]);
+
+  useEffect(() => {
     if (slideshowKeys.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const activeAsset = mediaMap.get(slideshowKeys[previewSlideIndex]);
     const durationMs = isVideoMedia(activeAsset)
