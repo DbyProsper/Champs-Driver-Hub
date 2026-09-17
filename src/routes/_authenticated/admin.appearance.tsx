@@ -412,8 +412,8 @@ function AppearanceAdmin() {
             <div className="mt-3 overflow-hidden rounded-2xl bg-charcoal text-white">
               <div className="relative aspect-[9/14]">
                 {slideshowKeys.map((key, index) => {
-                  const asset = mediaMap.get(key) ?? { src: imageSrcFor(key, media, "girls-lunch"), alt: `Hero slide ${index + 1}`, media_type: "image" };
-                  return <HeroMedia key={key} asset={asset} active={index === previewSlideIndex} opacity={heroImageOpacity} objectPosition={`${settings.hero_focus_x}% ${settings.hero_focus_y}%`} />;
+                  const asset = mediaMap.get(key) ?? { src: imageSrcFor(key, media, "girls-lunch"), alt: `Hero slide ${index + 1}`, media_type: "image", duration_seconds: null };
+                  return <HeroMedia key={key} asset={asset} active={index === previewSlideIndex} opacity={heroImageOpacity} objectPosition={`${settings.hero_focus_x}% ${settings.hero_focus_y}%`} motionDurationMs={isVideoMedia(asset) ? Math.min(15, Math.max(1, asset.duration_seconds ?? 15)) * 1000 : heroSlideDurationMs} />;
                 })}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent" />
                 <div className="absolute bottom-0 p-5">

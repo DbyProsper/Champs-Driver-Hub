@@ -88,6 +88,7 @@ function Home() {
               active={index === heroSlideIndex}
               opacity={heroImageOpacity}
               objectPosition={`${settings.hero_focus_x}% ${settings.hero_focus_y}%`}
+              motionDurationMs={isVideoMedia(asset) ? Math.min(15, Math.max(1, asset.duration_seconds ?? 15)) * 1000 : heroSlideDurationMs}
             />
           ))}
         </div>

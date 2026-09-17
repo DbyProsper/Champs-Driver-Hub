@@ -10,10 +10,11 @@ type HeroMediaProps = {
   active: boolean;
   opacity: number;
   objectPosition: string;
+  motionDurationMs: number;
   className?: string;
 };
 
-export function HeroMedia({ asset, active, opacity, objectPosition, className = "" }: HeroMediaProps) {
+export function HeroMedia({ asset, active, opacity, objectPosition, motionDurationMs, className = "" }: HeroMediaProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -28,7 +29,12 @@ export function HeroMedia({ asset, active, opacity, objectPosition, className = 
     }
   }, [active]);
 
-  const sharedStyle = { objectPosition, opacity: active ? opacity : 0 };
+  const sharedStyle = {
+    objectPosition,
+    opacity: active ? opacity : 0,
+    animationDuration: active ? `${motionDurationMs}ms` : undefined,
+  };
+  const motionClass = active ? "hero-media-zoom-out" : "";
 
   if (isVideoMedia(asset)) {
     return (
@@ -41,7 +47,7 @@ export function HeroMedia({ asset, active, opacity, objectPosition, className = 
         autoPlay={active}
         controls={false}
         preload={active ? "auto" : "metadata"}
-        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none ${className}`}
+        className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none ${motionClass} ${className}`}
         style={sharedStyle}
       />
     );
@@ -51,7 +57,7 @@ export function HeroMedia({ asset, active, opacity, objectPosition, className = 
     <img
       src={asset.src}
       alt={asset.alt}
-      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none ${className}`}
+      className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none ${motionClass} ${className}`}
       style={sharedStyle}
     />
   );
