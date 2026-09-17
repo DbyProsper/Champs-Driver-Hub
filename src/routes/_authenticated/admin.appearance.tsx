@@ -9,6 +9,7 @@ import { logAdminAction } from "@/lib/audit";
 import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import { AdminBranchScope } from "@/components/AdminBranchScope";
+import { HeroMedia, isVideoMedia, MediaThumbnail } from "@/components/HeroMedia";
 
 export const Route = createFileRoute("/_authenticated/admin/appearance")({
   head: () => ({ meta: [{ title: "Appearance — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -17,15 +18,15 @@ export const Route = createFileRoute("/_authenticated/admin/appearance")({
 
 const IMAGE_KEY_OPTIONS = ["girls-lunch", "chicken-hero", "chicken-chips", "burger-card", "shakes-card", "chef", "couple", "champs-logo"];
 const CATEGORY_CARDS = [
-  { key: "chicken-hero", label: "Chicken", fallback: "chicken-hero" as const },
-  { key: "chicken-chips", label: "Combos", fallback: "chicken-chips" as const },
-  { key: "burger-card", label: "Burgers", fallback: "burger-card" as const },
-  { key: "shakes-card", label: "Shakes", fallback: "shakes-card" as const },
-];
+  { key: "chicken-hero", imageField: "browse_chicken_image_key", titleField: "browse_chicken_title", descriptionField: "browse_chicken_description", fallback: "chicken-hero" as const },
+  { key: "chicken-chips", imageField: "browse_combos_image_key", titleField: "browse_combos_title", descriptionField: "browse_combos_description", fallback: "chicken-chips" as const },
+  { key: "burger-card", imageField: "browse_burgers_image_key", titleField: "browse_burgers_title", descriptionField: "browse_burgers_description", fallback: "burger-card" as const },
+  { key: "shakes-card", imageField: "browse_shakes_image_key", titleField: "browse_shakes_title", descriptionField: "browse_shakes_description", fallback: "shakes-card" as const },
+] as const;
 const BRAND_CARDS = [
-  { key: "couple", label: "Left brand image", fallback: "couple" as const },
-  { key: "chef", label: "Right brand image", fallback: "chef" as const },
-];
+  { key: "couple", imageField: "brand_left_image_key", label: "Left brand image", fallback: "couple" as const },
+  { key: "chef", imageField: "brand_right_image_key", label: "Right brand image", fallback: "chef" as const },
+] as const;
 type EditableBranch = { id: string; name: string; address: string; city: string; postal_code: string; phone: string | null; whatsapp: string | null; email: string | null; facebook_url: string | null; instagram_url: string | null };
 
 function AppearanceAdmin() {
@@ -60,17 +61,22 @@ function AppearanceAdmin() {
     [settings.hero_image_key, settings.hero_slideshow_keys],
   );
   const selectableHeroMedia = useMemo(() => media.filter((asset) => asset.is_active), [media]);
+  const selectableImageMedia = useMemo(() => selectableHeroMedia.filter((asset) => !isVideoMedia(asset)), [selectableHeroMedia]);
   const heroSlideDurationMs = Math.min(30, Math.max(2, settings.hero_slide_duration_seconds ?? 6)) * 1000;
   const heroImageOpacity = Math.min(100, Math.max(0, settings.hero_image_opacity ?? 100)) / 100;
 
   useEffect(() => {
     setPreviewSlideIndex(0);
     if (slideshowKeys.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = window.setInterval(() => {
+    const activeAsset = mediaMap.get(slideshowKeys[previewSlideIndex]);
+    const durationMs = isVideoMedia(activeAsset)
+      ? Math.min(15, Math.max(1, activeAsset?.duration_seconds ?? 15)) * 1000
+      : heroSlideDurationMs;
+    const timer = window.setTimeout(() => {
       setPreviewSlideIndex((current) => (current + 1) % slideshowKeys.length);
-    }, heroSlideDurationMs);
-    return () => window.clearInterval(timer);
-  }, [heroSlideDurationMs, slideshowKeys]);
+    }, durationMs);
+    return () => window.clearTimeout(timer);
+  }, [heroSlideDurationMs, mediaMap, previewSlideIndex, slideshowKeys]);
 
   function updateSlideshow(nextKeys: string[]) {
     const uniqueKeys = [...new Set(nextKeys)].slice(0, 12);
@@ -106,7 +112,14 @@ function AppearanceAdmin() {
     setBusy(true);
     try {
       const settingsId = scope === "both" ? "main" : `branch:${scope}`;
-      const { error } = await (supabase.from("site_settings") as any).upsert({ ...settings, id: settingsId, branch_id: scope === "both" ? null : scope }, { onConflict: "id" });
+      const { id: _id, branch_id: _branchId, updated_at: _updatedAt, ...appearanceValues } = settings;
+      const rows = scope === "both"
+        ? [
+            { ...appearanceValues, id: "main", branch_id: null },
+            ...branches.map((branch) => ({ ...appearanceValues, id: `branch:${branch.id}`, branch_id: branch.id })),
+          ]
+        : [{ ...appearanceValues, id: settingsId, branch_id: scope }];
+      const { error } = await (supabase.from("site_settings") as any).upsert(rows, { onConflict: "id" });
       if (error) throw error;
       for (const [id, patch] of Object.entries(branchDirty)) {
         const { error: branchError } = await (supabase as any).from("branches").update(patch).eq("id", id);
@@ -155,7 +168,7 @@ function AppearanceAdmin() {
     }
   }
 
-  async function uploadCategoryImage(key: string, label: string, file: File) {
+  async function uploadCategoryImage(key: string, label: string, file: File, settingField?: keyof SiteSettings) {
     if (!file.type.startsWith("image/")) return toast.error("Choose an image file");
     if (file.size > 5 * 1024 * 1024) return toast.error("Image must be smaller than 5 MB");
     setUploadingKey(key);
@@ -171,8 +184,7 @@ function AppearanceAdmin() {
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       await load();
-      setSettingsDirty(false);
-      setBranchDirty({});
+      if (settingField) patchSettings({ [settingField]: key });
       toast.success(`${label} image updated on the homepage`);
     } catch (error: any) {
       toast.error(error.message ?? "Could not upload image");
@@ -182,22 +194,27 @@ function AppearanceAdmin() {
   }
 
   async function uploadLibraryImage(file: File) {
-    if (!file.type.startsWith("image/")) return toast.error("Choose an image file");
-    if (file.size > 5 * 1024 * 1024) return toast.error("Image must be smaller than 5 MB");
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type === "video/mp4" || file.type === "video/webm";
+    if (!isImage && !isVideo) return toast.error("Choose an image, MP4, or WebM file");
+    const maxBytes = isVideo ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxBytes) return toast.error(`${isVideo ? "Video" : "Image"} must be smaller than ${isVideo ? 25 : 5} MB`);
     setUploadingKey("library");
     try {
+      const durationSeconds = isVideo ? await readVideoDuration(file) : null;
+      if (durationSeconds != null && durationSeconds > 15.05) throw new Error("Hero videos can be no longer than 15 seconds");
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
       const path = `library/${crypto.randomUUID()}-${safeName}`;
       const { error: uploadError } = await supabase.storage.from("site-assets").upload(path, file, { contentType: file.type });
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from("site-assets").getPublicUrl(path);
       const title = file.name.replace(/\.[^.]+$/, "");
-      const { error } = await supabase.from("media_assets").insert({ title, image_key: `library-${crypto.randomUUID()}`, src: data.publicUrl, alt: title, usage: "library", is_active: true, sort_order: media.length * 10 + 10 });
+      const { error } = await supabase.from("media_assets").insert({ title, image_key: `library-${crypto.randomUUID()}`, src: data.publicUrl, alt: title, usage: isVideo ? "hero-video" : "library", media_type: isVideo ? "video" : "image", duration_seconds: durationSeconds, is_active: true, sort_order: media.length * 10 + 10 });
       if (error) throw error;
       await queryClient.invalidateQueries({ queryKey: ["site-content"] });
       await load();
-      toast.success("Image uploaded to the library");
-    } catch (error: any) { toast.error(error.message ?? "Could not upload image"); }
+      toast.success(`${isVideo ? "Video" : "Image"} uploaded to the library`);
+    } catch (error: any) { toast.error(error.message ?? "Could not upload media"); }
     finally { setUploadingKey(null); }
   }
 
@@ -252,8 +269,8 @@ function AppearanceAdmin() {
             <div className="mt-5 border-t pt-4">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold">Hero slideshow images</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">Choose images from the media library and arrange their display order.</p>
+                  <h3 className="font-semibold">Hero slideshow media</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Choose images or videos from the media library and arrange their display order. Videos play silently for up to 15 seconds.</p>
                 </div>
                 <span className="text-xs text-muted-foreground">{slideshowKeys.length}/12</span>
               </div>
@@ -263,7 +280,7 @@ function AppearanceAdmin() {
                   return (
                     <div key={key} className="flex items-center gap-3 rounded-xl border bg-background p-2">
                       <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-muted">
-                        <img src={imageSrcFor(key, media, "girls-lunch")} alt={asset?.alt || asset?.title || key} className="h-full w-full object-cover" />
+                        <MediaThumbnail asset={asset ?? { src: imageSrcFor(key, media, "girls-lunch"), alt: key, media_type: "image" }} className="h-full w-full object-cover" />
                         <span className="absolute left-1 top-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold text-brand-foreground">{index + 1}</span>
                       </div>
                       <div className="min-w-0 flex-1">
@@ -285,7 +302,7 @@ function AppearanceAdmin() {
                     <div className="flex w-max gap-2">
                       {selectableHeroMedia.filter((asset) => !slideshowKeys.includes(asset.image_key)).map((asset) => (
                         <button key={asset.id} type="button" onClick={() => addHeroSlide(asset.image_key)} className="group w-24 shrink-0 text-left" aria-label={`Add ${asset.title} to slideshow`}>
-                          <span className="relative block h-16 overflow-hidden rounded-lg border bg-muted"><img src={asset.src} alt={asset.alt} className="h-full w-full object-cover" /><span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"><Plus className="h-5 w-5 text-white" /></span></span>
+                          <span className="relative block h-16 overflow-hidden rounded-lg border bg-muted"><MediaThumbnail asset={asset} className="h-full w-full object-cover" /><span className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"><Plus className="h-5 w-5 text-white" /></span></span>
                           <span className="mt-1 block truncate text-[10px] font-semibold">{asset.title}</span>
                         </button>
                       ))}
@@ -309,7 +326,22 @@ function AppearanceAdmin() {
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Brand strip</h2>
             <Field label="Text below images"><input value={(settings as any).brand_tagline ?? "We love to serve."} onChange={(event) => patchSettings({ brand_tagline: event.target.value } as any)} className="input" /></Field>
-            <div className="mt-3 grid max-w-lg grid-cols-2 gap-3">{BRAND_CARDS.map((card) => <div key={card.key} className="min-w-0 rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={card.label} className="aspect-square w-full rounded-xl object-cover" /><label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Upload className="h-3.5 w-3.5" /> Change image<input type="file" accept="image/*" className="sr-only" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadCategoryImage(card.key, card.label, file); event.target.value=""; }} /></label></div>)}</div>
+            <div className="mt-3 grid max-w-lg grid-cols-2 gap-3">
+              {BRAND_CARDS.map((card) => {
+                const selectedKey = settings[card.imageField];
+                return (
+                  <div key={card.key} className="min-w-0 rounded-2xl border p-3">
+                    <img src={imageSrcFor(selectedKey, media, card.fallback)} alt={card.label} className="aspect-square w-full rounded-xl object-cover" />
+                    <Field label="Choose from media library">
+                      <select value={selectedKey} onChange={(event) => patchSettings({ [card.imageField]: event.target.value })} className="input">
+                        {selectableImageMedia.map((asset) => <option key={asset.id} value={asset.image_key}>{asset.title}</option>)}
+                      </select>
+                    </Field>
+                    <label className="mt-2 inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground"><Upload className="h-3.5 w-3.5" /> Upload new<input type="file" accept="image/*" className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, card.label, file, card.imageField); event.target.value = ""; }} /></label>
+                  </div>
+                );
+              })}
+            </div>
           </section>
 
           <section className="rounded-2xl border bg-card p-4">
@@ -320,23 +352,42 @@ function AppearanceAdmin() {
 
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand">Browse the menu images</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Upload each homepage category image individually. The current live image is shown below.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Choose an existing library image or upload a new one, then edit the text shown on each homepage card.</p>
+            <Field label="Section heading"><input value={settings.browse_menu_heading} onChange={(event) => patchSettings({ browse_menu_heading: event.target.value })} className="input" /></Field>
             <div className="mt-3 grid max-w-lg grid-cols-2 gap-3">
-              {CATEGORY_CARDS.map((card) => <div key={card.key} className="min-w-0 rounded-2xl border p-3"><img src={imageSrcFor(card.key, media, card.fallback)} alt={`${card.label} current image`} className="aspect-[4/3] w-full rounded-xl object-cover" /><div className="mt-2 flex flex-wrap items-center justify-between gap-2"><div className="min-w-0"><div className="truncate font-semibold">{card.label}</div><div className="text-[10px] text-muted-foreground">Current homepage image</div></div><label className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground">{uploadingKey === card.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload<input type="file" accept="image/*" disabled={uploadingKey !== null} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, card.label, file); event.target.value = ""; }} /></label></div></div>)}
+              {CATEGORY_CARDS.map((card) => {
+                const selectedKey = settings[card.imageField];
+                const title = settings[card.titleField];
+                return (
+                  <div key={card.key} className="min-w-0 rounded-2xl border p-3">
+                    <img src={imageSrcFor(selectedKey, media, card.fallback)} alt={`${title} current image`} className="aspect-[4/3] w-full rounded-xl object-cover" />
+                    <div className="mt-2 grid gap-2">
+                      <Field label="Card title"><input value={title} onChange={(event) => patchSettings({ [card.titleField]: event.target.value })} className="input" /></Field>
+                      <Field label="Card description"><input value={settings[card.descriptionField]} onChange={(event) => patchSettings({ [card.descriptionField]: event.target.value })} className="input" /></Field>
+                      <Field label="Choose from media library">
+                        <select value={selectedKey} onChange={(event) => patchSettings({ [card.imageField]: event.target.value })} className="input">
+                          {selectableImageMedia.map((asset) => <option key={asset.id} value={asset.image_key}>{asset.title}</option>)}
+                        </select>
+                      </Field>
+                      <label className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-2 text-xs font-bold text-brand-foreground">{uploadingKey === card.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload new<input type="file" accept="image/*" disabled={uploadingKey !== null} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadCategoryImage(card.key, title, file, card.imageField); event.target.value = ""; }} /></label>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
 
           <section className="rounded-2xl border bg-card p-4">
             <h2 className="font-display text-2xl text-brand inline-flex items-center gap-2"><Image className="h-5 w-5" /> Media Library</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Images referenced here can be picked as the hero, homepage cards, or per-menu-item photos. Paste a path from <code>/images/champs/</code> or a full URL.</p>
-            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">{uploadingKey === "library" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload from device<input type="file" accept="image/*" className="sr-only" disabled={uploadingKey !== null} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLibraryImage(file); event.target.value = ""; }} /></label>
+            <p className="mt-1 text-xs text-muted-foreground">Images can be used throughout the homepage. MP4 and WebM videos up to 15 seconds can be used in the hero slideshow.</p>
+            <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground">{uploadingKey === "library" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload image or video<input type="file" accept="image/*,video/mp4,video/webm" className="sr-only" disabled={uploadingKey !== null} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadLibraryImage(file); event.target.value = ""; }} /></label>
             <div className="mt-3 space-y-3">
               {media.map((asset) => {
                 const heroPosition = slideshowKeys.indexOf(asset.image_key);
                 return (
                   <div key={asset.id} className="grid gap-2 rounded-xl border p-3 sm:grid-cols-[84px_1fr_auto]">
                     <div className="relative h-20 w-20">
-                      <img src={asset.src} alt={asset.alt} className="h-20 w-20 rounded-lg object-cover" />
+                      <MediaThumbnail asset={asset} className="h-20 w-20 rounded-lg object-cover" />
                       {heroPosition >= 0 && <span className="absolute -top-1 -right-1 rounded-full bg-brand px-1.5 py-0.5 text-[9px] font-bold uppercase text-brand-foreground">Hero {heroPosition + 1}</span>}
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -360,16 +411,10 @@ function AppearanceAdmin() {
             <h2 className="font-display text-2xl text-brand">Preview</h2>
             <div className="mt-3 overflow-hidden rounded-2xl bg-charcoal text-white">
               <div className="relative aspect-[9/14]">
-                {slideshowKeys.map((key, index) => (
-                  <img
-                    key={key}
-                    src={imageSrcFor(key, media, "girls-lunch")}
-                    alt={mediaMap.get(key)?.alt || mediaMap.get(key)?.title || `Hero slide ${index + 1}`}
-                    aria-hidden={index !== previewSlideIndex}
-                    className="absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 motion-reduce:transition-none"
-                    style={{ objectPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%`, opacity: index === previewSlideIndex ? heroImageOpacity : 0 }}
-                  />
-                ))}
+                {slideshowKeys.map((key, index) => {
+                  const asset = mediaMap.get(key) ?? { src: imageSrcFor(key, media, "girls-lunch"), alt: `Hero slide ${index + 1}`, media_type: "image" };
+                  return <HeroMedia key={key} asset={asset} active={index === previewSlideIndex} opacity={heroImageOpacity} objectPosition={`${settings.hero_focus_x}% ${settings.hero_focus_y}%`} />;
+                })}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent" />
                 <div className="absolute bottom-0 p-5">
                   <div className="text-[10px] font-bold uppercase tracking-widest text-white/80">{settings.hero_eyebrow}</div>
@@ -408,4 +453,29 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
   );
+}
+
+function readVideoDuration(file: File) {
+  return new Promise<number>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    const cleanup = () => {
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+    video.preload = "metadata";
+    video.muted = true;
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      cleanup();
+      if (!Number.isFinite(duration) || duration <= 0) reject(new Error("Could not read the video duration"));
+      else resolve(duration);
+    };
+    video.onerror = () => {
+      cleanup();
+      reject(new Error("This video could not be read. Please upload an MP4 or WebM file."));
+    };
+    video.src = objectUrl;
+  });
 }

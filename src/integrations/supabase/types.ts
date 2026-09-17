@@ -681,9 +681,11 @@ export type Database = {
         Row: {
           alt: string
           created_at: string
+          duration_seconds: number | null
           id: string
           image_key: string
           is_active: boolean
+          media_type: string
           sort_order: number
           src: string
           title: string
@@ -693,9 +695,11 @@ export type Database = {
         Insert: {
           alt?: string
           created_at?: string
+          duration_seconds?: number | null
           id?: string
           image_key: string
           is_active?: boolean
+          media_type?: string
           sort_order?: number
           src: string
           title: string
@@ -705,9 +709,11 @@ export type Database = {
         Update: {
           alt?: string
           created_at?: string
+          duration_seconds?: number | null
           id?: string
           image_key?: string
           is_active?: boolean
+          media_type?: string
           sort_order?: number
           src?: string
           title?: string
@@ -1161,6 +1167,19 @@ export type Database = {
           brand_left_image_key: string
           brand_right_image_key: string
           brand_tagline: string
+          browse_burgers_description: string
+          browse_burgers_image_key: string
+          browse_burgers_title: string
+          browse_chicken_description: string
+          browse_chicken_image_key: string
+          browse_chicken_title: string
+          browse_combos_description: string
+          browse_combos_image_key: string
+          browse_combos_title: string
+          browse_menu_heading: string
+          browse_shakes_description: string
+          browse_shakes_image_key: string
+          browse_shakes_title: string
           hero_body: string
           hero_eyebrow: string
           hero_focus_x: number
@@ -1186,6 +1205,19 @@ export type Database = {
           brand_left_image_key?: string
           brand_right_image_key?: string
           brand_tagline?: string
+          browse_burgers_description?: string
+          browse_burgers_image_key?: string
+          browse_burgers_title?: string
+          browse_chicken_description?: string
+          browse_chicken_image_key?: string
+          browse_chicken_title?: string
+          browse_combos_description?: string
+          browse_combos_image_key?: string
+          browse_combos_title?: string
+          browse_menu_heading?: string
+          browse_shakes_description?: string
+          browse_shakes_image_key?: string
+          browse_shakes_title?: string
           hero_body?: string
           hero_eyebrow?: string
           hero_focus_x?: number
@@ -1211,6 +1243,19 @@ export type Database = {
           brand_left_image_key?: string
           brand_right_image_key?: string
           brand_tagline?: string
+          browse_burgers_description?: string
+          browse_burgers_image_key?: string
+          browse_burgers_title?: string
+          browse_chicken_description?: string
+          browse_chicken_image_key?: string
+          browse_chicken_title?: string
+          browse_combos_description?: string
+          browse_combos_image_key?: string
+          browse_combos_title?: string
+          browse_menu_heading?: string
+          browse_shakes_description?: string
+          browse_shakes_image_key?: string
+          browse_shakes_title?: string
           hero_body?: string
           hero_eyebrow?: string
           hero_focus_x?: number

@@ -24,6 +24,19 @@ export const FALLBACK_SETTINGS: SiteSettings = {
   brand_left_image_key: "couple",
   brand_right_image_key: "chef",
   brand_tagline: "We love to serve.",
+  browse_menu_heading: "Browse the menu",
+  browse_chicken_image_key: "chicken-hero",
+  browse_chicken_title: "Chicken",
+  browse_chicken_description: "1pc → 21pc bucket",
+  browse_combos_image_key: "chicken-chips",
+  browse_combos_title: "Combos",
+  browse_combos_description: "Chicken + chips",
+  browse_burgers_image_key: "burger-card",
+  browse_burgers_title: "Burgers",
+  browse_burgers_description: "Mississippi, Dekka",
+  browse_shakes_image_key: "shakes-card",
+  browse_shakes_title: "Shakes",
+  browse_shakes_description: "Cold & creamy",
   hero_eyebrow: "Now taking online orders",
   hero_line_one: "Crispy. Bold.",
   hero_line_two: "Champs Chicken.",
@@ -45,14 +58,15 @@ export const FALLBACK_SETTINGS: SiteSettings = {
 };
 
 export const FALLBACK_MEDIA: MediaAsset[] = [
-  { id: "fallback-girls", title: "Girls lunch hero", image_key: "girls-lunch", src: LOCAL_IMAGE_SRC["girls-lunch"], alt: "Customers enjoying Champs Chicken together", usage: "hero", is_active: true, sort_order: 10, created_at: "", updated_at: "" },
-  { id: "fallback-chicken", title: "Chicken hero", image_key: "chicken-hero", src: LOCAL_IMAGE_SRC["chicken-hero"], alt: "Fresh Champs fried chicken", usage: "homepage-card", is_active: true, sort_order: 20, created_at: "", updated_at: "" },
-  { id: "fallback-chips", title: "Chicken and chips", image_key: "chicken-chips", src: LOCAL_IMAGE_SRC["chicken-chips"], alt: "Champs chicken served with chips", usage: "homepage-card", is_active: true, sort_order: 30, created_at: "", updated_at: "" },
-  { id: "fallback-chef", title: "Champs chef", image_key: "chef", src: LOCAL_IMAGE_SRC.chef, alt: "Champs kitchen team member", usage: "brand", is_active: true, sort_order: 40, created_at: "", updated_at: "" },
-  { id: "fallback-couple", title: "Customers eating together", image_key: "couple", src: LOCAL_IMAGE_SRC.couple, alt: "Customers enjoying a meal at Champs", usage: "brand", is_active: true, sort_order: 50, created_at: "", updated_at: "" },
-  { id: "fallback-burger", title: "Champs burger", image_key: "burger-card", src: LOCAL_IMAGE_SRC["burger-card"], alt: "Fresh Champs burger", usage: "homepage-card", is_active: true, sort_order: 45, created_at: "", updated_at: "" },
-  { id: "fallback-shakes", title: "Champs shakes", image_key: "shakes-card", src: LOCAL_IMAGE_SRC["shakes-card"], alt: "Cold Champs shakes", usage: "homepage-card", is_active: true, sort_order: 55, created_at: "", updated_at: "" },
-  { id: "fallback-logo", title: "Champs logo", image_key: "champs-logo", src: LOCAL_IMAGE_SRC["champs-logo"], alt: "Champs Chicken logo", usage: "logo", is_active: true, sort_order: 60, created_at: "", updated_at: "" },
+  { id: "fallback-girls", title: "Girls lunch hero", image_key: "girls-lunch", src: LOCAL_IMAGE_SRC["girls-lunch"], alt: "Customers enjoying Champs Chicken together", usage: "hero", media_type: "image", duration_seconds: null, is_active: true, sort_order: 10, created_at: "", updated_at: "" },
+  { id: "fallback-chicken", title: "Chicken hero", image_key: "chicken-hero", src: LOCAL_IMAGE_SRC["chicken-hero"], alt: "Fresh Champs fried chicken", usage: "homepage-card", media_type: "image", duration_seconds: null, is_active: true, sort_order: 20, created_at: "", updated_at: "" },
+  { id: "fallback-chips", title: "Chicken and chips", image_key: "chicken-chips", src: LOCAL_IMAGE_SRC["chicken-chips"], alt: "Champs chicken served with chips", usage: "homepage-card", media_type: "image", duration_seconds: null, is_active: true, sort_order: 30, created_at: "", updated_at: "" },
+  { id: "fallback-chef", title: "Champs chef", image_key: "chef", src: LOCAL_IMAGE_SRC.chef, alt: "Champs kitchen team member", usage: "brand", media_type: "image", duration_seconds: null, is_active: true, sort_order: 40, created_at: "", updated_at: "" },
+  { id: "fallback-couple", title: "Customers eating together", image_key: "couple", src: LOCAL_IMAGE_SRC.couple, alt: "Customers enjoying a meal at Champs", usage: "brand", media_type: "image", duration_seconds: null, is_active: true, sort_order: 50, created_at: "", updated_at: "" },
+  { id: "fallback-burger", title: "Champs burger", image_key: "burger-card", src: LOCAL_IMAGE_SRC["burger-card"], alt: "Fresh Champs burger", usage: "homepage-card", media_type: "image", duration_seconds: null, is_active: true, sort_order: 45, created_at: "", updated_at: "" },
+  { id: "fallback-shakes", title: "Champs shakes", image_key: "shakes-card", src: LOCAL_IMAGE_SRC["shakes-card"], alt: "Cold Champs shakes", usage: "homepage-card", media_type: "image", duration_seconds: null, is_active: true, sort_order: 55, created_at: "", updated_at: "" },
+  { id: "fallback-logo", title: "Champs logo", image_key: "champs-logo", src: LOCAL_IMAGE_SRC["champs-logo"], alt: "Champs Chicken logo", usage: "logo", media_type: "image", duration_seconds: null, is_active: true, sort_order: 60, created_at: "", updated_at: "" },
+  { id: "fallback-brand-video", title: "Brand reveal logo animation", image_key: "brand-reveal-logo-animation", src: "/images/champs/Brand_reveal_logo_animation_202609081052.mp4", alt: "Animated Champs logo reveal", usage: "hero-video", media_type: "video", duration_seconds: 10, is_active: true, sort_order: 65, created_at: "", updated_at: "" },
 ];
 
 export function mediaByKey(media: MediaAsset[]) {

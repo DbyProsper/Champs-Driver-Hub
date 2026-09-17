@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapPin, Clock, ChevronRight, Flame, Sparkles, Phone, Mail, Facebook, Instagram } from "lucide-react";
 import { Header } from "@/components/Header";
 import { BottomNav } from "@/components/BottomNav";
@@ -10,6 +10,7 @@ import { activePromotionsQuery } from "@/lib/user-queries";
 import { formatZAR } from "@/lib/format";
 import { FALLBACK_SETTINGS, imageSrcFor, siteContentQuery } from "@/lib/site-content";
 import { supabase } from "@/integrations/supabase/client";
+import { HeroMedia, isVideoMedia } from "@/components/HeroMedia";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -29,9 +30,21 @@ function Home() {
   const settings = content?.settings ?? FALLBACK_SETTINGS;
   const media = content?.media ?? [];
   const heroSlideKeys = settings.hero_slideshow_keys?.length ? settings.hero_slideshow_keys : [settings.hero_image_key];
-  const heroSlides = heroSlideKeys
-    .map((key) => imageSrcFor(key, media, "girls-lunch"))
-    .filter((src, index, slides) => slides.indexOf(src) === index);
+  const heroSlides = useMemo(() => {
+    const mediaMap = new Map(media.map((asset) => [asset.image_key, asset]));
+    const seen = new Set<string>();
+    return heroSlideKeys.flatMap((key) => {
+      const asset = mediaMap.get(key) ?? {
+        src: imageSrcFor(key, media, "girls-lunch"),
+        alt: "Champs Chicken hero",
+        media_type: "image",
+        duration_seconds: null,
+      };
+      if (seen.has(asset.src)) return [];
+      seen.add(asset.src);
+      return [asset];
+    });
+  }, [heroSlideKeys, media]);
   const heroSlideDurationMs = Math.min(30, Math.max(2, settings.hero_slide_duration_seconds ?? 6)) * 1000;
   const heroImageOpacity = Math.min(100, Math.max(0, settings.hero_image_opacity ?? 100)) / 100;
   const [heroSlideIndex, setHeroSlideIndex] = useState(0);
@@ -51,11 +64,15 @@ function Home() {
   useEffect(() => {
     setHeroSlideIndex((current) => current % heroSlides.length);
     if (heroSlides.length < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = window.setInterval(() => {
+    const activeSlide = heroSlides[heroSlideIndex];
+    const durationMs = isVideoMedia(activeSlide)
+      ? Math.min(15, Math.max(1, activeSlide.duration_seconds ?? 15)) * 1000
+      : heroSlideDurationMs;
+    const timer = window.setTimeout(() => {
       setHeroSlideIndex((current) => (current + 1) % heroSlides.length);
-    }, heroSlideDurationMs);
-    return () => window.clearInterval(timer);
-  }, [heroSlideDurationMs, heroSlides.length]);
+    }, durationMs);
+    return () => window.clearTimeout(timer);
+  }, [heroSlideDurationMs, heroSlideIndex, heroSlides]);
 
   return (
     <div className="min-h-screen pb-24">
@@ -64,11 +81,13 @@ function Home() {
       {/* Hero artwork rotates without changing the existing content or layout. */}
       <section className="relative overflow-hidden text-white min-h-[68vh] sm:min-h-[520px] flex">
         <div className="absolute inset-0" aria-hidden>
-          {heroSlides.map((src, index) => (
-            <div
-              key={src}
-              className="absolute inset-0 bg-cover transition-opacity duration-1000 motion-reduce:transition-none"
-              style={{ backgroundImage: `url(${src})`, backgroundPosition: `${settings.hero_focus_x}% ${settings.hero_focus_y}%`, opacity: index === heroSlideIndex ? heroImageOpacity : 0 }}
+          {heroSlides.map((asset, index) => (
+            <HeroMedia
+              key={asset.src}
+              asset={asset}
+              active={index === heroSlideIndex}
+              opacity={heroImageOpacity}
+              objectPosition={`${settings.hero_focus_x}% ${settings.hero_focus_y}%`}
             />
           ))}
         </div>
@@ -132,15 +151,15 @@ function Home() {
       {/* Quick categories */}
       {settings.show_categories && <section className="mx-auto max-w-lg px-5 pt-6">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-display text-2xl">Browse the menu</h2>
+          <h2 className="font-display text-2xl">{settings.browse_menu_heading}</h2>
           <Link to="/menu" className="text-sm font-semibold text-brand">See all</Link>
         </div>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { title: "Chicken", desc: "1pc → 21pc bucket", img: imageSrcFor("chicken-hero", media, "chicken-hero"), slug: "chicken" },
-            { title: "Combos", desc: "Chicken + chips", img: imageSrcFor("chicken-chips", media, "chicken-chips"), slug: "combos" },
-            { title: "Burgers", desc: "Mississippi, Dekka", img: imageSrcFor("burger-card", media, "burger-card"), slug: "burgers" },
-            { title: "Shakes", desc: "Cold & creamy", img: imageSrcFor("shakes-card", media, "shakes-card"), slug: "shakes" },
+            { title: settings.browse_chicken_title, desc: settings.browse_chicken_description, img: imageSrcFor(settings.browse_chicken_image_key, media, "chicken-hero"), slug: "chicken" },
+            { title: settings.browse_combos_title, desc: settings.browse_combos_description, img: imageSrcFor(settings.browse_combos_image_key, media, "chicken-chips"), slug: "combos" },
+            { title: settings.browse_burgers_title, desc: settings.browse_burgers_description, img: imageSrcFor(settings.browse_burgers_image_key, media, "burger-card"), slug: "burgers" },
+            { title: settings.browse_shakes_title, desc: settings.browse_shakes_description, img: imageSrcFor(settings.browse_shakes_image_key, media, "shakes-card"), slug: "shakes" },
           ].map((c) => (
             <Link
               key={c.slug}

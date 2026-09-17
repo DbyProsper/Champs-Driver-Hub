@@ -1,6 +1,6 @@
 import type { MediaAsset } from "@/lib/site-content";
 
-const publicImages = import.meta.glob("/public/images/**/*.{png,jpg,jpeg,webp,gif,avif,svg}", {
+const publicImages = import.meta.glob("/public/images/**/*.{png,jpg,jpeg,webp,gif,avif,svg,mp4,webm}", {
   eager: true,
   query: "?url",
   import: "default",
@@ -9,6 +9,7 @@ const publicImages = import.meta.glob("/public/images/**/*.{png,jpg,jpeg,webp,gi
 export const PUBLIC_MENU_MEDIA: MediaAsset[] = Object.entries(publicImages).map(([path, bundledUrl], index) => {
   const file = path.split("/").pop() ?? `Image ${index + 1}`;
   const title = file.replace(/\.[^.]+$/, "");
+  const isVideo = /\.(mp4|webm)$/i.test(path);
   return {
     id: `public-image-${index}`,
     title,
@@ -16,6 +17,8 @@ export const PUBLIC_MENU_MEDIA: MediaAsset[] = Object.entries(publicImages).map(
     src: bundledUrl || path.replace(/^\/public/, ""),
     alt: title,
     usage: path.toLowerCase().includes("menu") ? "menu-library" : "public-library",
+    media_type: isVideo ? "video" : "image",
+    duration_seconds: isVideo ? 15 : null,
     is_active: true,
     sort_order: 1000 + index,
     created_at: "",
