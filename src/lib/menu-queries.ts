@@ -16,6 +16,7 @@ export type MenuItem = {
   burger_only_price_cents: number | null;
   icon_text: string | null;
   comes_with_drink: boolean;
+  allowed_drink_option_ids: string[];
   promotion_id: string | null;
   branch_id: string | null;
 };

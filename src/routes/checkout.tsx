@@ -96,17 +96,23 @@ function Checkout() {
     delivery_notes: "",
     delivery_address: "",
   });
-  const drinkOptions = useMemo(() => {
-    if (!menuData) return [];
+  const drinkOptionsByItemId = useMemo(() => {
+    const result = new Map<string, Array<{ id: string; label: string }>>();
+    if (!menuData) return result;
     const drinkCategoryIds = new Set(menuData.categories.filter((category) => category.slug === "drinks").map((category) => category.id));
-    return menuData.items
-      .filter((item) => item.is_available && drinkCategoryIds.has(item.category_id))
-      .map((item) => item.variant_label ? `${item.name} — ${item.variant_label}` : item.name)
-      .filter((label, index, all) => all.indexOf(label) === index);
-  }, [menuData]);
+    const availableDrinks = new Map(menuData.items
+      .filter((item) => item.is_available && drinkCategoryIds.has(item.category_id) && (!item.branch_id || item.branch_id === branch?.id))
+      .map((item) => [item.id, { id: item.id, label: item.variant_label ? `${item.name} — ${item.variant_label}` : item.name }]));
+    items.forEach((item) => {
+      const authoritative = menuData.items.find((menuItem) => menuItem.id === (item.menu_item_id ?? item.id));
+      const allowedIds = authoritative?.allowed_drink_option_ids ?? item.allowed_drink_option_ids ?? [];
+      result.set(item.id, allowedIds.map((id) => availableDrinks.get(id)).filter((option): option is { id: string; label: string } => Boolean(option)));
+    });
+    return result;
+  }, [menuData, items, branch?.id]);
   const drinkRequiredItemIds = useMemo(() => new Set(items.filter((item) => {
     const authoritative = menuData?.items.find((menuItem) => menuItem.id === (item.menu_item_id ?? item.id));
-    return item.comes_with_drink ?? authoritative?.comes_with_drink ?? false;
+    return authoritative?.comes_with_drink ?? item.comes_with_drink ?? false;
   }).map((item) => item.id)), [items, menuData]);
 
   useEffect(() => {
@@ -298,7 +304,11 @@ function Checkout() {
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
     if (!userId) return toast.error("Please sign in before placing an order so only you can track it");
     if (parsed.data.fulfillment === "pickup" && !settings.pickup_enabled) return toast.error("Pickup is currently disabled");
-    const missingDrink = items.find((item) => drinkRequiredItemIds.has(item.id) && !drinkChoices[item.id]);
+    const missingDrink = items.find((item) => {
+      if (!drinkRequiredItemIds.has(item.id)) return false;
+      const allowed = drinkOptionsByItemId.get(item.id) ?? [];
+      return !allowed.some((option) => option.id === drinkChoices[item.id]);
+    });
     if (missingDrink) return toast.error(`Choose the included drink for ${missingDrink.name}`);
 
     if (parsed.data.fulfillment === "delivery") {
@@ -356,7 +366,7 @@ function Checkout() {
         items.map((i) => ({
           order_id: orderRow.id,
           menu_item_id: i.menu_item_id ?? i.id,
-          item_name: `${i.variant ? `${i.name} — ${i.variant}` : i.name}${drinkRequiredItemIds.has(i.id) ? ` · Drink: ${drinkChoices[i.id]}` : ""}`,
+          item_name: `${i.variant ? `${i.name} — ${i.variant}` : i.name}${drinkRequiredItemIds.has(i.id) ? ` · Drink: ${drinkOptionsByItemId.get(i.id)?.find((option) => option.id === drinkChoices[i.id])?.label ?? "Not selected"}` : ""}`,
           unit_price_cents: i.unit_price_cents,
           quantity: i.quantity,
         })),
@@ -599,7 +609,7 @@ function Checkout() {
                   </span>
                   <span className="shrink-0 tabular-nums">{formatZAR(i.unit_price_cents * i.quantity)}</span>
                 </div>
-                {drinkRequiredItemIds.has(i.id) && <label className="block rounded-xl border border-brand/25 bg-brand/5 p-3"><span className="mb-1 block text-xs font-bold text-brand">Included drink{i.quantity > 1 ? ` for all ${i.quantity}` : ""}</span><select required aria-label={`Choose the included drink for ${i.name}`} value={drinkChoices[i.id] ?? ""} onChange={(event) => setDrinkChoices((current) => ({ ...current, [i.id]: event.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"><option value="">Choose your drink</option>{drinkOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select>{drinkOptions.length === 0 && <span className="mt-1 block text-xs text-destructive">No drinks are available. Please contact Champs before ordering this special.</span>}</label>}
+                {drinkRequiredItemIds.has(i.id) && <label className="block rounded-xl border border-brand/25 bg-brand/5 p-3"><span className="mb-1 block text-xs font-bold text-brand">Included drink{i.quantity > 1 ? ` for all ${i.quantity}` : ""}</span><select required aria-label={`Choose the included drink for ${i.name}`} value={drinkChoices[i.id] ?? ""} onChange={(event) => setDrinkChoices((current) => ({ ...current, [i.id]: event.target.value }))} className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"><option value="">Choose your drink</option>{(drinkOptionsByItemId.get(i.id) ?? []).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>{(drinkOptionsByItemId.get(i.id) ?? []).length === 0 && <span className="mt-1 block text-xs text-destructive">No drinks are configured for this item. Please contact Champs before ordering it.</span>}</label>}
               </div>
             ))}
             <div className="mt-2 flex justify-between text-xs">
@@ -622,7 +632,7 @@ function Checkout() {
 
         <button
           type="submit"
-          disabled={submitting || !branch || storeOpen !== true || items.some((item) => drinkRequiredItemIds.has(item.id) && !drinkChoices[item.id]) || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
+          disabled={submitting || !branch || storeOpen !== true || items.some((item) => drinkRequiredItemIds.has(item.id) && !(drinkOptionsByItemId.get(item.id) ?? []).some((option) => option.id === drinkChoices[item.id])) || (form.fulfillment === "delivery" && (!deliveryEligibility.allowed || !quote?.ok))}
           className="w-full rounded-full bg-brand py-4 text-sm font-bold text-brand-foreground hover:bg-brand-dark disabled:opacity-60"
         >
           {submitting ? "Sending order…" : form.fulfillment === "delivery" ? `Send Order to Driver · ${formatZAR(totalCents)}` : `Place order · ${formatZAR(subtotalCents)}`}

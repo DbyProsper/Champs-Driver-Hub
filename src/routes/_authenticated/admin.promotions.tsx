@@ -11,6 +11,7 @@ import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import type { MediaAsset } from "@/lib/site-content";
 import { AdminBranchScope } from "@/components/AdminBranchScope";
 import { fromJohannesburgInput, toJohannesburgInput } from "@/lib/promotion-schedule";
+import { DrinkOptionPicker, type DrinkOption } from "@/components/DrinkOptionPicker";
 
 export const Route = createFileRoute("/_authenticated/admin/promotions")({
   head: () => ({ meta: [{ title: "Promotions — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -31,6 +32,7 @@ type Promo = {
   is_active: boolean;
   sort_order: number;
   comes_with_drink: boolean;
+  allowed_drink_option_ids: string[];
   is_recurring: boolean;
 };
 type Branch = { id: string; name: string; city: string };
@@ -42,26 +44,36 @@ function PromoAdmin() {
   const [promos, setPromos] = useState<Promo[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [dirty, setDirty] = useState<Record<string, Partial<Promo>>>({});
-  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false, is_recurring: false });
+  const [newP, setNewP] = useState({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: "", day_of_week: "", comes_with_drink: false, allowed_drink_option_ids: [] as string[], is_recurring: false });
   const [media, setMedia] = useState<MediaAsset[]>([]);
   const [pickerFor, setPickerFor] = useState<"new" | string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [scope, setScope] = useState("both");
+  const [drinkOptions, setDrinkOptions] = useState<(DrinkOption & { branch_id: string | null })[]>([]);
 
   async function load() {
-    const [p, b, m] = await Promise.all([
+    const [p, b, m, menuItems, categories] = await Promise.all([
       supabase.from("promotions").select("*").order("sort_order"),
       supabase.from("branches").select("id, name, city").order("sort_order"),
       supabase.from("media_assets").select("*").order("sort_order"),
+      supabase.from("menu_items").select("id,name,variant_label,branch_id,is_available,category_id").order("sort_order"),
+      supabase.from("categories").select("id,slug"),
     ]);
     setPromos((p.data as Promo[]) ?? []);
     setBranches((b.data as Branch[]) ?? []);
     setMedia(mergePublicMenuMedia((m.data as MediaAsset[]) ?? []));
+    const drinkCategoryIds = new Set((categories.data ?? []).filter((category) => category.slug === "drinks").map((category) => category.id));
+    const branchRows = (b.data ?? []) as Branch[];
+    setDrinkOptions(((menuItems.data ?? []) as Array<{ id: string; name: string; variant_label: string | null; branch_id: string | null; is_available: boolean; category_id: string }>).filter((item) => item.is_available && drinkCategoryIds.has(item.category_id)).map((item) => ({ id: item.id, name: item.name, variant_label: item.variant_label, branch_id: item.branch_id, branchLabel: item.branch_id ? (branchRows.find((branch) => branch.id === item.branch_id)?.city || "Branch only") : null })));
   }
   useEffect(() => { load(); }, []);
 
   function edit(id: string, patch: Partial<Promo>) {
     setDirty((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+  }
+
+  function availableDrinkOptions(branchId: string | null) {
+    return drinkOptions.filter((option) => !branchId || !option.branch_id || option.branch_id === branchId);
   }
 
   async function syncPromoMenuItem(promo: Promo) {
@@ -89,6 +101,7 @@ function PromoAdmin() {
         image_url: promo.image_url ?? null,
         promotion_id: promo.id,
         comes_with_drink: promo.comes_with_drink,
+        allowed_drink_option_ids: promo.comes_with_drink ? promo.allowed_drink_option_ids : [],
         branch_id: promo.branch_id,
       } as never;
       if (existing?.id) {
@@ -106,6 +119,12 @@ function PromoAdmin() {
   async function saveAll(): Promise<boolean> {
     const entries = Object.entries(dirty);
     if (entries.length === 0) return true;
+    const invalid = entries.find(([id, patch]) => {
+      const current = promos.find((promo) => promo.id === id);
+      const next = current ? { ...current, ...patch } : null;
+      return next?.comes_with_drink && next.allowed_drink_option_ids.length === 0;
+    });
+    if (invalid) { toast.error("Select at least one allowed drink for every drink-inclusive promotion"); return false; }
     for (const [id, patch] of entries) {
       const current = promos.find((item) => item.id === id);
       const normalizedPatch = patch.is_recurring ? { ...patch, active_until: null } : patch;
@@ -124,6 +143,7 @@ function PromoAdmin() {
   async function create() {
     if (!newP.title.trim()) { toast.error("Title required"); return; }
     if (newP.is_recurring && newP.day_of_week === "") { toast.error("Choose the weekday to repeat this promotion"); return; }
+    if (newP.comes_with_drink && newP.allowed_drink_option_ids.length === 0) { toast.error("Select at least one allowed drink"); return; }
     const payload: any = {
       title: newP.title.trim(),
       badge: newP.badge.trim() || null,
@@ -135,6 +155,7 @@ function PromoAdmin() {
       branch_id: newP.branch_id || null,
       day_of_week: newP.day_of_week === "" ? null : Number(newP.day_of_week),
       comes_with_drink: newP.comes_with_drink,
+      allowed_drink_option_ids: newP.comes_with_drink ? newP.allowed_drink_option_ids : [],
       is_recurring: newP.is_recurring,
     };
     setBusyAction("create");
@@ -144,7 +165,7 @@ function PromoAdmin() {
     await syncPromoMenuItem(data as Promo);
     toast.success("Promo created");
     void logAdminAction({ action_type: "promotion_created", action_description: `Created promotion ${newP.title.trim()}`, target_type: "promotion", target_id: data.id, metadata: payload });
-    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: scope === "both" ? "" : scope, day_of_week: "", comes_with_drink: false, is_recurring: false });
+    setNewP({ title: "", badge: "", description: "", price_cents: "", image_url: "", active_from: "", active_until: "", branch_id: scope === "both" ? "" : scope, day_of_week: "", comes_with_drink: false, allowed_drink_option_ids: [], is_recurring: false });
     load();
   }
 
@@ -229,7 +250,8 @@ function PromoAdmin() {
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
             <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.is_recurring} onChange={(e) => setNewP({ ...newP, is_recurring: e.target.checked, active_until: e.target.checked ? "" : newP.active_until })} /> Repeat every selected weekday until deactivated</label>
-            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.comes_with_drink} onChange={(e) => setNewP({ ...newP, comes_with_drink: e.target.checked })} /> Comes with a drink — customer chooses at checkout</label>
+            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={newP.comes_with_drink} onChange={(e) => setNewP({ ...newP, comes_with_drink: e.target.checked, allowed_drink_option_ids: e.target.checked ? newP.allowed_drink_option_ids : [] })} /> Comes with a drink — customer chooses at checkout</label>
+            {newP.comes_with_drink && <DrinkOptionPicker options={availableDrinkOptions(newP.branch_id || null)} selectedIds={newP.allowed_drink_option_ids} onChange={(ids) => setNewP({ ...newP, allowed_drink_option_ids: ids })} />}
           </div>
           <button onClick={create} disabled={busyAction === "create"} className="mt-3 inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-bold text-brand-foreground disabled:opacity-60">{busyAction === "create" && <Loader2 className="h-4 w-4 animate-spin" />}Create promo</button>
         </section>
@@ -267,10 +289,11 @@ function PromoAdmin() {
                   <div className="mt-2 flex items-center justify-between text-xs">
                     <div className="flex flex-wrap items-center gap-4"><label className="inline-flex items-center gap-2">
                       <input type="checkbox" checked={cur.is_active} onChange={(e) => edit(p.id, { is_active: e.target.checked })} /> Active
-                    </label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.is_recurring} onChange={(e) => edit(p.id, { is_recurring: e.target.checked, active_until: e.target.checked ? null : cur.active_until })} /> Repeat weekly</label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(p.id, { comes_with_drink: e.target.checked })} /> Comes with a drink</label></div>
+                    </label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.is_recurring} onChange={(e) => edit(p.id, { is_recurring: e.target.checked, active_until: e.target.checked ? null : cur.active_until })} /> Repeat weekly</label><label className="inline-flex items-center gap-2"><input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(p.id, { comes_with_drink: e.target.checked, allowed_drink_option_ids: e.target.checked ? cur.allowed_drink_option_ids : [] })} /> Comes with a drink</label></div>
                     {cur.price_cents != null && <span className="tabular-nums text-muted-foreground">{formatZAR(cur.price_cents)}</span>}
                     <button onClick={() => remove(p.id)} className="inline-flex items-center gap-1 text-brand hover:underline"><Trash2 className="h-3 w-3" /> Delete</button>
                   </div>
+                  {cur.comes_with_drink && <div className="mt-3"><DrinkOptionPicker options={availableDrinkOptions(cur.branch_id)} selectedIds={cur.allowed_drink_option_ids} onChange={(ids) => edit(p.id, { allowed_drink_option_ids: ids })} /></div>}
                 </div>
               );
             })}

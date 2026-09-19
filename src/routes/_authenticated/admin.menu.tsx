@@ -11,6 +11,7 @@ import { mergePublicMenuMedia } from "@/lib/public-menu-media";
 import { UnsavedChangesGuard } from "@/components/UnsavedChangesGuard";
 import { useQueryClient } from "@tanstack/react-query";
 import { AdminBranchScope, type AdminBranch } from "@/components/AdminBranchScope";
+import { DrinkOptionPicker, type DrinkOption } from "@/components/DrinkOptionPicker";
 
 export const Route = createFileRoute("/_authenticated/admin/menu")({
   head: () => ({ meta: [{ title: "Edit Menu — Champs Admin" }, { name: "robots", content: "noindex" }] }),
@@ -31,6 +32,7 @@ type Item = {
   burger_only_price_cents: number | null;
   icon_text: string | null;
   comes_with_drink: boolean;
+  allowed_drink_option_ids: string[];
   branch_id: string | null;
 };
 
@@ -42,7 +44,7 @@ function MenuAdmin() {
   const [cats, setCats] = useState<Cat[]>([]);
   const [media, setMedia] = useState<MediaAsset[]>(FALLBACK_MEDIA);
   const [dirty, setDirty] = useState<Record<string, Partial<Item>>>({});
-  const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string; comes_with_drink: boolean }>>({});
+  const [newItem, setNewItem] = useState<Record<string, { name: string; variant: string; price: string; comes_with_drink: boolean; allowed_drink_option_ids: string[] }>>({});
   const [newCat, setNewCat] = useState("");
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [branches, setBranches] = useState<AdminBranch[]>([]);
@@ -67,9 +69,27 @@ function MenuAdmin() {
     setDirty((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
   }
 
+  const drinkCategoryIds = new Set(cats.filter((category) => category.slug === "drinks").map((category) => category.id));
+  function drinkOptionsFor(branchId: string | null): DrinkOption[] {
+    return items
+      .filter((item) => item.is_available && drinkCategoryIds.has(item.category_id) && (!branchId || !item.branch_id || item.branch_id === branchId))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        variant_label: item.variant_label,
+        branchLabel: item.branch_id ? (branches.find((branch) => branch.id === item.branch_id)?.city || branches.find((branch) => branch.id === item.branch_id)?.name || "Branch only") : null,
+      }));
+  }
+
   async function saveAll(): Promise<boolean> {
     const entries = Object.entries(dirty);
     if (entries.length === 0) return true;
+    const invalid = entries.find(([id, patch]) => {
+      const current = items.find((item) => item.id === id);
+      const next = current ? { ...current, ...patch } : null;
+      return next?.comes_with_drink && next.allowed_drink_option_ids.length === 0;
+    });
+    if (invalid) { toast.error("Select at least one allowed drink for every item that comes with a drink"); return false; }
     for (const [id, patch] of entries) {
       const { error } = await supabase.from("menu_items").update(patch).eq("id", id);
       if (error) { toast.error(`${id}: ${error.message}`); return false; }
@@ -85,6 +105,7 @@ function MenuAdmin() {
   async function addItem(catId: string) {
     const n = newItem[catId];
     if (!n || !n.name.trim() || !n.price) { toast.error("Name & price required"); return; }
+    if (n.comes_with_drink && n.allowed_drink_option_ids.length === 0) { toast.error("Select at least one allowed drink"); return; }
     const maxSort = Math.max(0, ...items.filter((i) => i.category_id === catId).map((i) => i.sort_order));
     const { error } = await supabase.from("menu_items").insert({
       category_id: catId,
@@ -93,13 +114,14 @@ function MenuAdmin() {
       price_cents: Math.round(Number(n.price) * 100),
       sort_order: maxSort + 10,
       comes_with_drink: n.comes_with_drink,
+      allowed_drink_option_ids: n.comes_with_drink ? n.allowed_drink_option_ids : [],
       branch_id: scope === "both" ? null : scope,
     } as never);
     if (error) toast.error(error.message);
     else {
       toast.success("Item added");
       void logAdminAction({ action_type: "menu_item_created", action_description: `Created menu item ${n.name.trim()}`, target_type: "menu_item", metadata: { category_id: catId, price_cents: Math.round(Number(n.price) * 100), variant: n.variant.trim() || null } });
-      setNewItem({ ...newItem, [catId]: { name: "", variant: "", price: "", comes_with_drink: false } });
+      setNewItem({ ...newItem, [catId]: { name: "", variant: "", price: "", comes_with_drink: false, allowed_drink_option_ids: [] } });
       load();
     }
   }
@@ -152,7 +174,7 @@ function MenuAdmin() {
 
         {cats.map((c) => {
           const catItems = items.filter((i) => i.category_id === c.id && (scope === "both" ? i.branch_id == null : i.branch_id == null || i.branch_id === scope)).sort((a, b) => a.sort_order - b.sort_order);
-          const ni = newItem[c.id] ?? { name: "", variant: "", price: "", comes_with_drink: false };
+          const ni = newItem[c.id] ?? { name: "", variant: "", price: "", comes_with_drink: false, allowed_drink_option_ids: [] };
           return (
             <section key={c.id}>
               <h2 className="font-display text-2xl text-brand mb-2">{c.name}</h2>
@@ -216,9 +238,10 @@ function MenuAdmin() {
                         Available
                       </label>
                       <label className="inline-flex items-center gap-2 text-xs sm:col-span-2">
-                        <input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(it.id, { comes_with_drink: e.target.checked })} />
+                        <input type="checkbox" checked={cur.comes_with_drink} onChange={(e) => edit(it.id, { comes_with_drink: e.target.checked, allowed_drink_option_ids: e.target.checked ? cur.allowed_drink_option_ids : [] })} />
                         Comes with a drink — customer chooses at checkout
                       </label>
+                      {cur.comes_with_drink && <DrinkOptionPicker options={drinkOptionsFor(cur.branch_id)} selectedIds={cur.allowed_drink_option_ids} onChange={(ids) => edit(it.id, { allowed_drink_option_ids: ids })} />}
                       <span className="text-xs text-muted-foreground tabular-nums sm:col-span-2">Displayed: {formatZAR(cur.special_price_cents ?? cur.price_cents ?? 0)}</span>
                       </div>
                       <button onClick={() => removeItem(it.id)} className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:text-brand hover:bg-brand/10" aria-label="Delete">
@@ -258,7 +281,8 @@ function MenuAdmin() {
                     value={ni.price}
                     onChange={(e) => setNewItem({ ...newItem, [c.id]: { ...ni, price: e.target.value } })}
                   />
-                  <label className="inline-flex items-center gap-2 text-xs sm:col-span-3"><input type="checkbox" checked={ni.comes_with_drink} onChange={(e) => setNewItem({ ...newItem, [c.id]: { ...ni, comes_with_drink: e.target.checked } })} /> Comes with a drink</label>
+                  <label className="inline-flex items-center gap-2 text-xs sm:col-span-3"><input type="checkbox" checked={ni.comes_with_drink} onChange={(e) => setNewItem({ ...newItem, [c.id]: { ...ni, comes_with_drink: e.target.checked, allowed_drink_option_ids: e.target.checked ? ni.allowed_drink_option_ids : [] } })} /> Comes with a drink</label>
+                  {ni.comes_with_drink && <DrinkOptionPicker options={drinkOptionsFor(scope === "both" ? null : scope)} selectedIds={ni.allowed_drink_option_ids} onChange={(ids) => setNewItem({ ...newItem, [c.id]: { ...ni, allowed_drink_option_ids: ids } })} />}
                   <button onClick={() => addItem(c.id)} className="inline-flex items-center gap-1 rounded-full bg-brand px-3 py-1.5 text-xs font-bold text-brand-foreground">
                     <Plus className="h-3 w-3" /> Add
                   </button>

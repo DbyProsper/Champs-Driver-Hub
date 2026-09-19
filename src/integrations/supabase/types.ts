@@ -724,6 +724,7 @@ export type Database = {
       }
       menu_items: {
         Row: {
+          allowed_drink_option_ids: string[]
           branch_id: string | null
           category_id: string
           comes_with_drink: boolean
@@ -743,6 +744,7 @@ export type Database = {
           variant_label: string | null
         }
         Insert: {
+          allowed_drink_option_ids?: string[]
           branch_id?: string | null
           category_id: string
           comes_with_drink?: boolean
@@ -762,6 +764,7 @@ export type Database = {
           variant_label?: string | null
         }
         Update: {
+          allowed_drink_option_ids?: string[]
           branch_id?: string | null
           category_id?: string
           comes_with_drink?: boolean
@@ -1065,6 +1068,7 @@ export type Database = {
         Row: {
           active_from: string | null
           active_until: string | null
+          allowed_drink_option_ids: string[]
           badge: string | null
           branch_id: string | null
           comes_with_drink: boolean
@@ -1083,6 +1087,7 @@ export type Database = {
         Insert: {
           active_from?: string | null
           active_until?: string | null
+          allowed_drink_option_ids?: string[]
           badge?: string | null
           branch_id?: string | null
           comes_with_drink?: boolean
@@ -1101,6 +1106,7 @@ export type Database = {
         Update: {
           active_from?: string | null
           active_until?: string | null
+          allowed_drink_option_ids?: string[]
           badge?: string | null
           branch_id?: string | null
           comes_with_drink?: boolean

@@ -9,6 +9,7 @@ export type CartItem = {
   quantity: number;
   image_url?: string | null;
   comes_with_drink?: boolean;
+  allowed_drink_option_ids?: string[];
 };
 
 type CartCtx = {
